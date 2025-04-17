@@ -2,18 +2,24 @@ import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function OrganizerProfile() {
   const router = useRouter();
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="black" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Organizer Profile</Text>
-      </View>
+      <LinearGradient
+        colors={['#2a9d8f', '#264653']}
+        style={styles.headerGradient}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Organizer Profile</Text>
+        </View>
+      </LinearGradient>
 
       <ScrollView style={styles.scrollView}>
         <View style={styles.profileHeader}>
@@ -73,21 +79,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f9f9f9',
   },
+  headerGradient: {
+    paddingTop: 15,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 15,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    padding: 16,
+    backgroundColor: 'transparent',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   backButton: {
-    padding: 5,
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginLeft: 15,
+  title: {
+    fontSize: 24,
+    fontWeight: '600',
+    marginLeft: 16,
+    color: 'white',
   },
   scrollView: {
     flex: 1,
@@ -95,68 +112,95 @@ const styles = StyleSheet.create({
   profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
+    padding: 25,
     backgroundColor: 'white',
-    marginBottom: 10,
+    marginBottom: 15,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
   },
   profilePicLarge: {
-    width: 80,
-    height: 80,
-    backgroundColor: 'gray',
-    borderRadius: 40,
-    marginRight: 15,
+    width: 90,
+    height: 90,
+    backgroundColor: '#2a9d8f',
+    borderRadius: 45,
+    marginRight: 20,
+    borderWidth: 3,
+    borderColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
   },
   profileInfo: {
     flex: 1,
   },
   profileName: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: 'bold',
-    marginBottom: 5,
+    marginBottom: 8,
+    color: '#2a2a2a',
   },
   profileRating: {
     fontSize: 16,
-    color: 'gray',
+    color: '#FFD700',
   },
   profileSection: {
     backgroundColor: 'white',
-    padding: 15,
-    marginBottom: 10,
+    padding: 20,
+    marginBottom: 15,
+    marginHorizontal: 15,
+    borderRadius: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 15,
+    color: '#2a2a2a',
   },
   profileDescription: {
     fontSize: 16,
-    color: '#333',
+    color: '#555',
     lineHeight: 24,
   },
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 10,
-    borderRadius: 5,
+    backgroundColor: '#f8f8f8',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
   },
   locationText: {
-    marginLeft: 10,
+    marginLeft: 12,
     fontSize: 16,
-    color: '#333',
+    color: '#444',
   },
   eventCard: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 5,
-    padding: 10,
-    marginBottom: 10,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
   },
   eventThumbnail: {
-    width: 60,
-    height: 60,
-    borderRadius: 5,
-    marginRight: 10,
+    width: 70,
+    height: 70,
+    borderRadius: 10,
+    marginRight: 15,
   },
   eventInfo: {
     flex: 1,
@@ -165,10 +209,12 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 5,
+    marginBottom: 6,
+    color: '#2a2a2a',
   },
   eventDate: {
     fontSize: 14,
-    color: 'gray',
+    color: '#2a9d8f',
+    fontWeight: '500',
   },
 }); 

@@ -1,57 +1,148 @@
-import React, { useState } from "react";
-import { View, Text, TouchableOpacity, Image, ScrollView, StyleSheet, Modal, TextInput, KeyboardAvoidingView, Platform } from "react-native";
+import React, { useState, useEffect } from "react";
+import {
+  View, Text, TouchableOpacity, Image, ScrollView, StyleSheet,
+  Modal, TextInput, KeyboardAvoidingView, Platform, Alert
+} from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useEvents } from '../context/EventsContext';
+import { useBookings } from "../context/BookingsContext";
 
 export default function EventDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { getEventById } = useEvents();
+  const { addBooking } = useBookings();
   const [isFormVisible, setIsFormVisible] = useState(false);
-  const [isProfileVisible, setIsProfileVisible] = useState(false);
+  const [isReceiptVisible, setIsReceiptVisible] = useState(false);
+  const [showAllEventTypes, setShowAllEventTypes] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [event, setEvent] = useState(null);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     phoneNumber: '',
+    eventType: 'Conference',
     date: '',
   });
 
+  const eventTypes = [
+    'Conference', 'Workshop', 'Birthday', 'Wedding', 'Anniversary',
+    'Corporate Event', 'Concert', 'Exhibition', 'Seminar', 'Other'
+  ];
+
+  useEffect(() => {
+    // If we have an ID, get the event from context
+    if (params.id) {
+      const eventData = getEventById(params.id);
+      if (eventData) {
+        setEvent(eventData);
+      } else {
+        // Fallback to params if event not found in context
+        setEvent({
+          id: params.id,
+          title: params.title,
+          location: params.location,
+          venue: params.venue,
+          image: params.image,
+          description: params.description
+        });
+      }
+    } else {
+      // Fallback to params if no ID (for backward compatibility)
+      setEvent({
+        id: params.id,
+        title: params.title,
+        location: params.location,
+        venue: params.venue,
+        image: params.image,
+        description: params.description
+      });
+    }
+  }, [params, getEventById]);
+
   const handleSubmit = () => {
-    console.log('Form submitted:', formData);
+    const newBooking = {
+      id: Date.now().toString(),
+      eventId: event.id,
+      eventTitle: event.title,
+      eventDate: event.date,
+      eventLocation: event.location,
+      eventImage: event.image,
+      fullName: formData.fullName,
+      email: formData.email,
+      phone: formData.phoneNumber,
+      eventType: formData.eventType,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    addBooking(newBooking);
+    console.log('Booking submitted:', newBooking);
+    
+    // Close form and show receipt
     setIsFormVisible(false);
-    setFormData({
-      fullName: '',
-      email: '',
-      phoneNumber: '',
-      date: '',
-    });
+    setIsReceiptVisible(true);
   };
+
+  const handleViewBooking = () => {
+    setIsReceiptVisible(false);
+    router.push('/NOnav/MyEvent');
+  };
+
+  const handleDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      const formattedDate = selectedDate.toLocaleDateString('en-US', {
+        month: '2-digit',
+        day: '2-digit',
+        year: 'numeric'
+      });
+      setFormData({ ...formData, date: formattedDate });
+    }
+  };
+
+  if (!event) {
+    return (
+      <View style={styles.container}>
+        <Text>Loading...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
+      <LinearGradient
+        colors={['#2a9d8f', '#264653']}
+        style={styles.headerGradient}
+      >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="black" />
+            <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
           <Text style={styles.title}>Book Now</Text>
         </View>
+      </LinearGradient>
 
+      <ScrollView style={styles.scrollView}>
         <Image 
-          source={params.image} 
-          style={styles.eventImage}
+          source={typeof event.image === 'string' ? { uri: event.image } : event.image} 
+          style={styles.eventImage} 
         />
 
         <View style={styles.section}>
-          <Text style={styles.title}>{params.title}</Text>
+          <Text style={styles.title}>{event.title}</Text>
           <Text style={styles.location}>
-            <FontAwesome name="map-marker" size={16} color="gray" /> {params.location}
+            <FontAwesome name="map-marker" size={16} color="gray" /> {event.location}
           </Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.subTitle}>Location</Text>
           <View style={styles.mapCard}>
-            <Text>{params.location}</Text>
+            <Text>{event.location}</Text>
             <TouchableOpacity style={styles.viewMapButton}>
               <Text style={styles.viewMapText}>View on Map</Text>
             </TouchableOpacity>
@@ -60,12 +151,7 @@ export default function EventDetailsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.subTitle}>Description</Text>
-          <Text>{params.description}</Text>
-        </View>
-        
-        <View style={styles.section}>
-          <Text style={styles.subTitle}>Categories</Text>
-          <Text>{params.categories}</Text>
+          <Text>{event.description}</Text>
         </View>
 
         <View style={styles.section}>
@@ -76,22 +162,16 @@ export default function EventDetailsScreen() {
               <Text style={styles.organiserName}>Mong Sin</Text>
               <Text>&#11088; 0.00 (0)</Text>
             </View>
-            <TouchableOpacity style={styles.followButton}>
-              <Text style={styles.followText}>Follow</Text>
-            </TouchableOpacity>
           </View>
+
           <View style={styles.links}>
             <TouchableOpacity onPress={() => router.push('/NOnav/OrganizerProfile')}>
               <Text style={styles.linkText}>View Profile</Text>
             </TouchableOpacity>
-            <Text style={styles.linkSeparator}> | </Text>
-            <TouchableOpacity>
-              <Text style={styles.linkText}>Contact</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.checkOutButton}
           onPress={() => setIsFormVisible(true)}
         >
@@ -109,7 +189,7 @@ export default function EventDetailsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Checkout Form</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => setIsFormVisible(false)}
                 style={styles.closeButton}
               >
@@ -117,130 +197,179 @@ export default function EventDetailsScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.formContainer}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Full Name</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your full name"
-                  value={formData.fullName}
-                  onChangeText={(text) => setFormData({...formData, fullName: text})}
-                  autoCapitalize="words"
-                />
-              </View>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              style={styles.formContainer}
+            >
+              <ScrollView>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Full Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your full name"
+                    value={formData.fullName}
+                    onChangeText={(text) => setFormData({ ...formData, fullName: text })}
+                    autoCapitalize="words"
+                  />
+                </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your email"
-                  keyboardType="email-address"
-                  value={formData.email}
-                  onChangeText={(text) => setFormData({...formData, email: text})}
-                  autoCapitalize="none"
-                />
-              </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Email Address</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your email address"
+                    keyboardType="email-address"
+                    value={formData.email}
+                    onChangeText={(text) => setFormData({ ...formData, email: text })}
+                    autoCapitalize="none"
+                  />
+                </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Phone Number</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your phone number"
-                  keyboardType="phone-pad"
-                  value={formData.phoneNumber}
-                  onChangeText={(text) => setFormData({...formData, phoneNumber: text})}
-                  maxLength={15}
-                />
-              </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Phone Number</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your phone number"
+                    keyboardType="phone-pad"
+                    value={formData.phoneNumber}
+                    onChangeText={(text) => setFormData({ ...formData, phoneNumber: text })}
+                    maxLength={15}
+                  />
+                </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Date</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter date (MM/DD/YYYY)"
-                  value={formData.date}
-                  onChangeText={(text) => setFormData({...formData, date: text})}
-                  keyboardType="numeric"
-                />
-              </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Event Type</Text>
+                  <View style={styles.eventTypeWrapper}>
+                    {showAllEventTypes ? (
+                      <ScrollView style={styles.eventTypeContainer}>
+                        {eventTypes.map((type) => (
+                          <TouchableOpacity
+                            key={type}
+                            style={[
+                              styles.eventTypeButton,
+                              formData.eventType === type && styles.selectedEventType
+                            ]}
+                            onPress={() => {
+                              setFormData({ ...formData, eventType: type });
+                              setShowAllEventTypes(false);
+                            }}
+                          >
+                            <Text style={[
+                              styles.eventTypeText,
+                              formData.eventType === type && styles.selectedEventTypeText
+                            ]}>{type}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.selectedEventTypeButton}
+                        onPress={() => setShowAllEventTypes(true)}
+                      >
+                        <Text style={styles.selectedEventTypeText}>{formData.eventType}</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={styles.scrollIconContainer}
+                      onPress={() => setShowAllEventTypes(!showAllEventTypes)}
+                    >
+                      <Ionicons
+                        name={showAllEventTypes ? "chevron-up" : "chevron-down"}
+                        size={24}
+                        color="#666"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
-              <TouchableOpacity 
-                style={styles.submitButton}
-                onPress={handleSubmit}
-              >
-                <Text style={styles.submitButtonText}>Submit</Text>
-              </TouchableOpacity>
-            </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Date</Text>
+                  <View style={styles.dateInputContainer}>
+                    <TextInput
+                      style={styles.dateInput}
+                      placeholder="Enter date (MM/DD/YYYY)"
+                      value={formData.date}
+                      onChangeText={(text) => setFormData({ ...formData, date: text })}
+                      keyboardType="numeric"
+                      editable={false}
+                    />
+                    <TouchableOpacity
+                      style={styles.calendarIconContainer}
+                      onPress={() => setShowDatePicker(true)}
+                    >
+                      <Ionicons name="calendar" size={24} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+                  {showDatePicker && (
+                    <DateTimePicker
+                      value={formData.date ? new Date(formData.date) : new Date()}
+                      mode="date"
+                      display="default"
+                      onChange={handleDateChange}
+                    />
+                  )}
+                </View>
+
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={handleSubmit}
+                >
+                  <Text style={styles.submitButtonText}>Submit</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </KeyboardAvoidingView>
           </View>
         </View>
       </Modal>
 
+      {/* Receipt Modal */}
       <Modal
-        visible={isProfileVisible}
+        visible={isReceiptVisible}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setIsProfileVisible(false)}
+        onRequestClose={() => setIsReceiptVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Organizer Profile</Text>
-              <TouchableOpacity 
-                onPress={() => setIsProfileVisible(false)}
+          <View style={styles.receiptContent}>
+            <View style={styles.receiptHeader}>
+              <Text style={styles.receiptTitle}>Booking Confirmation</Text>
+              <TouchableOpacity
+                onPress={() => setIsReceiptVisible(false)}
                 style={styles.closeButton}
               >
                 <Ionicons name="close" size={24} color="black" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.profileScroll}>
-              <View style={styles.profileHeader}>
-                <View style={styles.profilePicLarge} />
-                <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>Mong Sin</Text>
-                  <Text style={styles.profileRating}>&#11088; 0.00 (0)</Text>
-                </View>
+            <ScrollView style={styles.receiptScroll}>
+              <View style={styles.receiptSection}>
+                <Text style={styles.receiptSectionTitle}>Event Information</Text>
+                <Text style={styles.receiptText}>Event: {event.title}</Text>
+                <Text style={styles.receiptText}>Type: {formData.eventType}</Text>
+                <Text style={styles.receiptText}>Date: {formData.date}</Text>
+                <Text style={styles.receiptText}>Location: {event.location}</Text>
               </View>
 
-              <View style={styles.profileSection}>
-                <Text style={styles.sectionTitle}>About</Text>
-                <Text style={styles.profileDescription}>
-                  Passionate event organizer with experience in creating memorable experiences.
-                  Specialized in cultural events and community gatherings.
-                </Text>
+              <View style={styles.receiptSection}>
+                <Text style={styles.receiptSectionTitle}>Booking Details</Text>
+                <Text style={styles.receiptText}>Booking ID: {Date.now().toString()}</Text>
+                <Text style={styles.receiptText}>Status: Pending</Text>
+                <Text style={styles.receiptText}>Booked on: {new Date().toLocaleDateString()}</Text>
               </View>
 
-              <View style={styles.profileSection}>
-                <Text style={styles.sectionTitle}>Location</Text>
-                <View style={styles.locationContainer}>
-                  <FontAwesome name="map-marker" size={16} color="gray" />
-                  <Text style={styles.locationText}>123 Event Street, City, Country</Text>
-                </View>
+              <View style={styles.receiptSection}>
+                <Text style={styles.receiptSectionTitle}>Customer Information</Text>
+                <Text style={styles.receiptText}>Name: {formData.fullName}</Text>
+                <Text style={styles.receiptText}>Email: {formData.email}</Text>
+                <Text style={styles.receiptText}>Phone: {formData.phoneNumber}</Text>
               </View>
 
-              <View style={styles.profileSection}>
-                <Text style={styles.sectionTitle}>Recent Events</Text>
-                <View style={styles.eventCard}>
-                  <Image 
-                    source={require('../../assets/convention.jpg')} 
-                    style={styles.eventThumbnail}
-                  />
-                  <View style={styles.eventInfo}>
-                    <Text style={styles.eventTitle}>Summer Music Festival</Text>
-                    <Text style={styles.eventDate}>July 15, 2024</Text>
-                  </View>
-                </View>
-                <View style={styles.eventCard}>
-                  <Image 
-                    source={require('../../assets/restaurant.jpg')} 
-                    style={styles.eventThumbnail}
-                  />
-                  <View style={styles.eventInfo}>
-                    <Text style={styles.eventTitle}>Food & Wine Expo</Text>
-                    <Text style={styles.eventDate}>August 20, 2024</Text>
-                  </View>
-                </View>
-              </View>
+              <TouchableOpacity
+                style={styles.viewBookingButton}
+                onPress={handleViewBooking}
+              >
+                <Text style={styles.viewBookingText}>View My Bookings</Text>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
@@ -250,184 +379,133 @@ export default function EventDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f9f9f9",
+  container: { flex: 1, backgroundColor: 'white' },
+  headerGradient: { paddingTop: 5, paddingBottom: 20, paddingHorizontal: 15 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', padding: 5, backgroundColor: 'transparent',
+    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, shadowRadius: 4,
   },
-  scrollView: {
-    flex: 1,
+  backButton: {
+    padding: 10, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 50,
   },
-  header: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    padding: 15, 
-    backgroundColor: "white" 
+  title: { fontSize: 24, fontWeight: '500', marginLeft: 10, color: 'white' },
+  scrollView: { padding: 15 },
+  eventImage: { width: '100%', height: 200, borderRadius: 10, marginBottom: 15 },
+  section: { marginBottom: 20 },
+  location: { fontSize: 16, color: 'gray' },
+  subTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 5 },
+  mapCard: {
+    padding: 15, borderRadius: 10, backgroundColor: '#f4f4f4',
+    borderWidth: 1, borderColor: '#ddd',
   },
-  backButton: { padding: 5 },
-  eventImage: { width: "100%", height: 200, resizeMode: "cover" },
-  section: { padding: 15, backgroundColor: "white", margin: 10, borderRadius: 10 },
-  title: { fontSize: 22, fontWeight: "bold" },
-  location: { fontSize: 14, color: "gray", marginTop: 5 },
-  subTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 5 },
-  mapCard: { flexDirection: "row", justifyContent: "space-between", padding: 10, backgroundColor: "#f1f1f1", borderRadius: 5 },
-  viewMapButton: { borderWidth: 1, borderColor: "teal", padding: 5, borderRadius: 5 },
-  viewMapText: { color: "teal" },
-  organiserCard: { flexDirection: "row", alignItems: "center", gap: 10 },
-  profilePic: { width: 40, height: 40, backgroundColor: "gray", borderRadius: 20 },
-  organiserName: { fontSize: 16, fontWeight: "bold" },
-  followButton: { borderWidth: 1, borderColor: "teal", padding: 5, borderRadius: 5 },
-  followText: { color: "teal" },
-  links: { 
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+  viewMapButton: {
+    marginTop: 10, padding: 10, backgroundColor: '#264653',
+    borderRadius: 5, alignItems: 'center',
   },
-  linkText: {
-    color: 'teal',
-    textDecorationLine: 'underline',
+  viewMapText: { color: 'white', fontWeight: 'bold' },
+  organiserCard: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  profilePic: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#ddd', marginRight: 10 },
+  organiserName: { fontSize: 16, fontWeight: 'bold' },
+  links: { marginTop: 10 },
+  linkText: { color: '#2a9d8f', textDecorationLine: 'underline' },
+  checkOutButton: {
+    marginTop: 5, marginBottom: 30, backgroundColor: '#2a9d8f',
+    paddingVertical: 15, borderRadius: 8, alignItems: 'center', width: '100%',
   },
-  linkSeparator: {
-    marginHorizontal: 5,
-    color: 'gray',
-  },
-  checkOutButton: { backgroundColor: "pink", padding: 15, margin: 10, borderRadius: 5, alignItems: "center" },
-  checkOutText: { fontSize: 16, fontWeight: "bold" },
+  checkOutText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
   modalOverlay: {
-    flex: 1,
+    flex: 1, justifyContent: 'center', alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  modalContent: {
+  modalContent: { width: '90%', backgroundColor: 'white', borderRadius: 10, padding: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalTitle: { fontSize: 20, fontWeight: 'bold' },
+  closeButton: { padding: 5 },
+  formContainer: { marginTop: 15 },
+  inputGroup: { marginBottom: 15 },
+  label: { fontSize: 16, marginBottom: 5 },
+  input: {
+    borderWidth: 1, borderColor: '#ccc', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8,
+  },
+  eventTypeWrapper: { flexDirection: 'row', alignItems: 'center' },
+  eventTypeContainer: { maxHeight: 150 },
+  eventTypeButton: {
+    paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ccc',
+    borderRadius: 20, marginRight: 8, marginBottom: 8,
+  },
+  selectedEventType: {
+    backgroundColor: '#2a9d8f', borderColor: '#2a9d8f',
+  },
+  eventTypeText: { fontSize: 14 },
+  selectedEventTypeText: { color: 'white' },
+  selectedEventTypeButton: {
+    padding: 10, backgroundColor: '#f0f0f0',
+    borderRadius: 20, marginRight: 8,
+  },
+  scrollIconContainer: { padding: 8 },
+  dateInputContainer: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1, borderColor: '#ccc', borderRadius: 8,
+  },
+  dateInput: {
+    flex: 1, paddingHorizontal: 10, paddingVertical: 8,
+  },
+  calendarIconContainer: { paddingHorizontal: 10 },
+  submitButton: {
+    marginTop: 10, backgroundColor: '#2a9d8f',
+    paddingVertical: 12, borderRadius: 8, alignItems: 'center',
+  },
+  submitButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  receiptContent: {
+    width: '90%',
     backgroundColor: 'white',
     borderRadius: 10,
     padding: 20,
-    width: '90%',
     maxHeight: '80%',
   },
-  modalHeader: {
+  receiptHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  closeButton: {
-    padding: 5,
-  },
-  formContainer: {
-    width: '100%',
-  },
-  inputGroup: {
-    marginBottom: 15,
-  },
-  label: {
-    fontSize: 16,
-    marginBottom: 5,
-    color: '#333',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 5,
-    padding: 10,
-    fontSize: 16,
-    backgroundColor: 'white',
-    color: '#333',
-    minHeight: 40,
-  },
-  submitButton: {
-    backgroundColor: '#2a9d8f',
-    padding: 15,
-    borderRadius: 5,
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  submitButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  profileScroll: {
-    flex: 1,
-  },
-  profileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  profilePicLarge: {
-    width: 80,
-    height: 80,
-    backgroundColor: 'gray',
-    borderRadius: 40,
-    marginRight: 15,
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
+  receiptTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 5,
+    color: '#2a9d8f',
   },
-  profileRating: {
-    fontSize: 16,
-    color: 'gray',
+  receiptScroll: {
+    maxHeight: '80%',
   },
-  profileSection: {
+  receiptSection: {
     marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
   },
-  sectionTitle: {
+  receiptSectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 10,
+    color: '#264653',
   },
-  profileDescription: {
+  receiptText: {
     fontSize: 16,
+    marginBottom: 5,
     color: '#333',
-    lineHeight: 24,
   },
-  locationContainer: {
-    flexDirection: 'row',
+  viewBookingButton: {
+    backgroundColor: '#2a9d8f',
+    padding: 15,
+    borderRadius: 8,
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 10,
-    borderRadius: 5,
+    marginTop: 10,
   },
-  locationText: {
-    marginLeft: 10,
-    fontSize: 16,
-    color: '#333',
-  },
-  eventCard: {
-    flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 5,
-    padding: 10,
-    marginBottom: 10,
-  },
-  eventThumbnail: {
-    width: 60,
-    height: 60,
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  eventInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  eventTitle: {
+  viewBookingText: {
+    color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  eventDate: {
-    fontSize: 14,
-    color: 'gray',
   },
 });

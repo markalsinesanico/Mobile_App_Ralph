@@ -2,13 +2,15 @@ import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView, TextInput,
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const menuItems = [
   { id: '1', title: 'My Events', icon: 'calendar' },
   { id: '2', title: 'Saved Events', icon: 'bookmark' },
   { id: '3', title: 'Settings', icon: 'settings' },
   { id: '4', title: 'Help & Support', icon: 'help-circle' },
-  { id: '5', title: 'Logout', icon: 'log-out' },
+  { id: '5', title: 'Logout', icon: 'log-out' }, 
+  { id: '6', title: 'Dashboard', icon: 'grid' },
 ];
 
 export default function ProfileScreen() {
@@ -34,61 +36,68 @@ export default function ProfileScreen() {
   ]);
 
   const handleMenuPress = (item) => {
-    if (item.id === '2') {
-      router.push({
-        pathname: '/NOnav/SavedEvents',
-        params: { savedEvents: JSON.stringify(savedEvents) }
-      });
+    if (item.id === '1') {
+      router.push('/NOnav/MyEvent');
+    } else if (item.id === '2') {
+      router.push('/NOnav/SavedEvents');
+    } else if (item.id === '3') {
+      router.push('/NOnav/Setting');
+    } else if (item.id === '4') {
+      router.push('/NOnav/HelpSupport');
+    } else if (item.id === '6') {
+      router.push('/Dashboard/HomeDashboard');
     }
   };
 
   return (
     <ScrollView style={styles.container}>
-      <View style={styles.header}>
+      <LinearGradient
+        colors={['#2a9d8f', '#264653']}
+        style={styles.headerGradient}
+      >
         <View style={styles.profileImageContainer}>
-          <Image
-            source={require('../../assets/convention.jpg')}
-            style={styles.profileImage}
-          />
-          <TouchableOpacity style={styles.editButton}>
-            <Ionicons name="camera" size={20} color="white" />
-          </TouchableOpacity>
-        </View>
-        {isEditing ? (
-          <View style={styles.editForm}>
-            <TextInput
-              style={styles.editInput}
-              value={name}
-              onChangeText={setName}
-              placeholder="Enter your name"
+          <View style={styles.profileImageWrapper}>
+            <Image
+              source={require('../../assets/convention.jpg')}
+              style={styles.profileImage}
             />
-            <TextInput
-              style={styles.editInput}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Enter your email"
-            />
-            <TouchableOpacity 
-              style={styles.saveButton}
-              onPress={() => setIsEditing(false)}
-            >
-              <Text style={styles.saveButtonText}>Save</Text>
+            <TouchableOpacity style={styles.editButton}>
+              <Ionicons name="camera" size={20} color="white" />
             </TouchableOpacity>
           </View>
-        ) : (
-          <>
-            <Text style={styles.name}>{name}</Text>
-            <Text style={styles.email}>{email}</Text>
-            <TouchableOpacity 
-              style={styles.editProfileButton}
-              onPress={() => setIsEditing(true)}
-            >
-              <Text style={styles.editProfileText}>Edit Profile</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-
+          
+          {isEditing ? (
+            <View style={styles.editForm}>
+              <TextInput
+                style={styles.editInput}
+                value={name}
+                onChangeText={setName}
+                placeholder="Enter your name"
+                placeholderTextColor="#ccc"
+              />
+              <TextInput
+                style={styles.editInput}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Enter your email"
+                placeholderTextColor="#ccc"
+              />
+              <TouchableOpacity 
+                style={styles.saveButton}
+                onPress={() => setIsEditing(false)}
+              >
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.profileInfo}>
+              <Text style={styles.name}>{name}</Text>
+              <Text style={styles.email}>{email}</Text>
+            </View>
+          )}
+        </View>
+      </LinearGradient>
+      
       <View style={styles.statsContainer}>
         <View style={styles.statItem}>
           <Text style={styles.statNumber}>12</Text>
@@ -124,41 +133,58 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f8f8',
   },
-  header: {
-    alignItems: 'center',
+  headerGradient: {
     padding: 20,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    paddingTop: 40,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
   },
   profileImageContainer: {
+    alignItems: 'center',
+    paddingBottom: 20,
+  },
+  profileImageWrapper: {
     position: 'relative',
     marginBottom: 16,
   },
   profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 4,
+    borderColor: 'white',
   },
   editButton: {
     position: 'absolute',
     right: 0,
     bottom: 0,
     backgroundColor: '#2a9d8f',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  profileInfo: {
     alignItems: 'center',
   },
   name: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 4,
+    color: 'white',
   },
   email: {
     fontSize: 16,
-    color: '#666',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 10,
   },
   editForm: {
     width: '100%',
@@ -168,26 +194,22 @@ const styles = StyleSheet.create({
     width: '80%',
     height: 40,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 5,
     paddingHorizontal: 10,
     marginBottom: 10,
+    color: 'white',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   saveButton: {
-    backgroundColor: '#2a9d8f',
+    backgroundColor: 'white',
     padding: 10,
     borderRadius: 5,
     marginTop: 10,
+    width: '80%',
+    alignItems: 'center',
   },
   saveButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  editProfileButton: {
-    marginTop: 10,
-    padding: 8,
-  },
-  editProfileText: {
     color: '#2a9d8f',
     fontWeight: 'bold',
   },
@@ -196,14 +218,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     padding: 20,
     backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    marginTop: -20,
+    marginHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   statItem: {
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#2a9d8f',
   },
@@ -214,6 +242,14 @@ const styles = StyleSheet.create({
   menuContainer: {
     backgroundColor: 'white',
     marginTop: 20,
+    marginHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    overflow: 'hidden',
   },
   menuItem: {
     flexDirection: 'row',

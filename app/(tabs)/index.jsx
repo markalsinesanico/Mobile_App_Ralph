@@ -1,120 +1,158 @@
-import { View, Text, Image, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React from "react";
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useEvents } from '../context/EventsContext';
 
-const venues = [
-  { 
-    id: '1', 
-    title: 'Convention Centers', 
-    description: 'Host your next big event in our state-of-the-art convention centers.',
-    image: require('../../assets/convention.jpg') 
-  },
-  { 
-    id: '2', 
-    title: 'Conference Centers', 
-    description: 'Perfect for business meetings and professional gatherings.',
-    image: require('../../assets/conference.jpg') 
-  },
-  { 
-    id: '3', 
-    title: 'Restaurants', 
-    description: 'Find the perfect dining venue for your special occasions.',
-    image: require('../../assets/restaurant.jpg') 
-  },
-  { 
-    id: '4', 
-    title: 'Bars and Nightclubs', 
-    description: 'Great venues for social events and celebrations.',
-    image: require('../../assets/bar.jpg') 
-  },
-];
-
-export default function HomeScreen() {
+export default function Categories() {
   const router = useRouter();
+  const { events, savedEvents, saveEvent, removeSavedEvent, isEventSaved } = useEvents();
+
+  const handleEventPress = (event) => {
+    router.push({
+      pathname: '/NOnav/Checkout',
+      params: {
+        id: event.id,
+        title: event.title,
+        location: event.location,
+        venue: event.venue,
+        image: event.image,
+        description: event.description,
+        categories: event.categories
+      }
+    });
+  };
+
+  const handleBookmarkPress = (event) => {
+    if (isEventSaved(event.id)) {
+      removeSavedEvent(event.id);
+      Alert.alert("Event Removed", "Event has been removed from your saved events.");
+    } else {
+      saveEvent(event);
+      Alert.alert("Event Saved", "Event has been added to your saved events.");
+    }
+  };
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#2a9d8f', '#264653']}
+        style={styles.headerGradient}
+      >
+        <Text style={styles.headerTitle}>EVENT VENUE</Text>
+      </LinearGradient>
 
-      <FlatList
-        data={venues}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.venueCard}>
-            <Image source={item.image} style={styles.venueImage} />
-            <View style={styles.venueInfo}>
-              <Text style={styles.venueTitle}>{item.title}</Text>
-              <Text style={styles.venueDescription}>{item.description}</Text>
-              <TouchableOpacity 
-                style={styles.exploreButton}
-                onPress={() => router.push('/NOnav/Categories')}
-              >
-                <Text style={styles.exploreButtonText}>Explore</Text>
-              </TouchableOpacity>
+      <ScrollView contentContainerStyle={styles.scrollViewContent}>
+        {events.map((event) => (
+          <TouchableOpacity 
+            key={event.id} 
+            style={styles.eventCard}
+            onPress={() => handleEventPress(event)}
+            activeOpacity={0.9}
+          >
+            <Image 
+              source={typeof event.image === 'string' ? { uri: event.image } : event.image} 
+              style={styles.eventImage} 
+            />
+            <View style={styles.cardContent}>
+              <Text style={styles.eventTitle}>{event.title}</Text>
+              <View style={styles.locationRow}>
+                <FontAwesome name="map-marker" size={14} color="#888" />
+                <Text style={styles.locationText}>{event.location}</Text>
+              </View>
+              <Text style={styles.description}>{event.description}</Text>
+              <View style={styles.footerRow}>
+                <Text style={styles.categories}>{event.categories || 'Event'}</Text>
+                <TouchableOpacity onPress={() => handleBookmarkPress(event)}>
+                  <FontAwesome 
+                    name={isEventSaved(event.id) ? "bookmark" : "bookmark-o"} 
+                    size={20} 
+                    color={isEventSaved(event.id) ? "#2a9d8f" : "#888"} 
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        )}
-        contentContainerStyle={styles.listContainer}
-      />
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f8f8',
+  container: { 
+    flex: 1, 
+    backgroundColor: "#f5f6fa" 
   },
-  header: {
-    backgroundColor: '#eef2f3',
-    padding: 20,
-    margin: 16,
-    borderRadius: 10,
+  headerGradient: {
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    elevation: 5
   },
-  welcomeText: {
-    fontSize: 18,
+  headerTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center'
   },
-  listContainer: {
-    padding: 16,
+  scrollViewContent: {
+    padding: 16
   },
-  venueCard: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+  eventCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    marginBottom: 20,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowRadius: 6,
+    elevation: 6,
   },
-  venueImage: {
-    width: '100%',
-    height: 150,
+  eventImage: {
+    width: "100%",
+    height: 180,
+    resizeMode: "cover"
   },
-  venueInfo: {
-    padding: 15,
+  cardContent: {
+    padding: 14
   },
-  venueTitle: {
+  eventTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  venueDescription: {
-    color: '#666',
-    marginBottom: 12,
-  },
-  exploreButton: {
-    backgroundColor: '#2a9d8f',
-    padding: 10,
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-  exploreButtonText: {
-    color: 'white',
     fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 6
   },
-}); 
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6
+  },
+  locationText: {
+    marginLeft: 6,
+    fontSize: 14,
+    color: "#666"
+  },
+  description: {
+    fontSize: 14,
+    color: "#444",
+    marginBottom: 10
+  },
+  categories: {
+    fontSize: 13,
+    color: '#2a9d8f',
+    fontWeight: '500',
+    flex: 1
+  },
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopColor: '#eee',
+    borderTopWidth: 1,
+    paddingTop: 10
+  }
+});
