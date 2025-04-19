@@ -1,8 +1,10 @@
-import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView, TextInput, Modal } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView, TextInput, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../context/AuthContext';
+import * as ImagePicker from 'expo-image-picker';
 
 const menuItems = [
   { id: '1', title: 'My Events', icon: 'calendar' },
@@ -15,9 +17,11 @@ const menuItems = [
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { currentUser, logoutUser, updateUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
-  const [name, setName] = useState('John Doe');
-  const [email, setEmail] = useState('john.doe@example.com');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [profileImage, setProfileImage] = useState(null);
   const [savedEvents, setSavedEvents] = useState([
     {
       id: 1,
@@ -35,6 +39,51 @@ export default function ProfileScreen() {
     },
   ]);
 
+  // Update local state when currentUser changes
+  useEffect(() => {
+    if (currentUser) {
+      setName(currentUser.fullName || 'John Doe');
+      setEmail(currentUser.email || 'john.doe@example.com');
+      setProfileImage(currentUser.profileImage || null);
+    }
+  }, [currentUser]);
+
+  const pickImage = async () => {
+    try {
+      // Request permission to access the media library
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to make this work!');
+        return;
+      }
+      
+      // Launch the image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      
+      if (!result.canceled) {
+        // Update the profile image state
+        setProfileImage(result.assets[0].uri);
+        
+        // Update the user profile in AuthContext
+        if (currentUser) {
+          updateUser({
+            ...currentUser,
+            profileImage: result.assets[0].uri
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
   const handleMenuPress = (item) => {
     if (item.id === '1') {
       router.push('/NOnav/MyEvent');
@@ -44,9 +93,19 @@ export default function ProfileScreen() {
       router.push('/NOnav/Setting');
     } else if (item.id === '4') {
       router.push('/NOnav/HelpSupport');
+    } else if (item.id === '5') {
+      // Handle logout
+      handleLogout();
     } else if (item.id === '6') {
       router.push('/Dashboard/HomeDashboard');
     }
+  };
+
+  const handleLogout = () => {
+    // Call the logout function from AuthContext
+    logoutUser();
+    // Navigate to login screen
+    router.replace('/authen/login');
   };
 
   return (
@@ -57,11 +116,18 @@ export default function ProfileScreen() {
       >
         <View style={styles.profileImageContainer}>
           <View style={styles.profileImageWrapper}>
-            <Image
-              source={require('../../assets/convention.jpg')}
-              style={styles.profileImage}
-            />
-            <TouchableOpacity style={styles.editButton}>
+            {profileImage ? (
+              <Image
+                source={{ uri: profileImage }}
+                style={styles.profileImage}
+              />
+            ) : (
+              <Image
+                source={require('../../assets/convention.jpg')}
+                style={styles.profileImage}
+              />
+            )}
+            <TouchableOpacity style={styles.editButton} onPress={pickImage}>
               <Ionicons name="camera" size={20} color="white" />
             </TouchableOpacity>
           </View>

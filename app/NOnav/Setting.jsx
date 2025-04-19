@@ -10,24 +10,31 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../context/AuthContext';
 
 export default function Settings() {
   const router = useRouter();
+  const { currentUser, logoutUser, updateUser } = useAuth();
   
   // Account Settings
-  const [name, setName] = useState('John Doe');
-  const [email, setEmail] = useState('john.doe@example.com');
-  const [phone, setPhone] = useState('+1 234 567 8900');
+  const [name, setName] = useState(currentUser?.fullName || 'John Doe');
+  const [email, setEmail] = useState(currentUser?.email || 'john.doe@example.com');
+  const [phone, setPhone] = useState(currentUser?.phone || '+1 234 567 8900');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   
   const handleSaveProfile = () => {
-    // Here you would typically save to a backend
-    Alert.alert('Success', 'Profile updated successfully');
-    setIsEditingProfile(false);
-  };
-  
-  const handleChangePassword = () => {
-    Alert.alert('Change Password', 'This feature will be available soon');
+    const result = updateUser({
+      fullName: name,
+      email: email,
+      phone: phone
+    });
+    
+    if (result.success) {
+      Alert.alert('Success', 'Profile updated successfully');
+      setIsEditingProfile(false);
+    } else {
+      Alert.alert('Error', result.message);
+    }
   };
   
   const handleDeleteAccount = () => {
@@ -36,11 +43,14 @@ export default function Settings() {
       'Are you sure you want to delete your account? This action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => console.log('Account deleted') }
+        { text: 'Delete', style: 'destructive', onPress: () => {
+          logoutUser();
+          router.replace('/authen/login');
+        }}
       ]
     );
   };
-  
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -51,7 +61,6 @@ export default function Settings() {
       </View>
       
       <ScrollView style={styles.scrollView}>
-        {/* Account Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account Settings</Text>
           
@@ -66,7 +75,6 @@ export default function Settings() {
                   placeholder="Enter your full name"
                 />
               </View>
-              
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Email</Text>
                 <TextInput
@@ -77,7 +85,6 @@ export default function Settings() {
                   keyboardType="email-address"
                 />
               </View>
-              
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Phone</Text>
                 <TextInput
@@ -128,17 +135,6 @@ export default function Settings() {
               </TouchableOpacity>
             </View>
           )}
-          
-          <TouchableOpacity 
-            style={styles.settingItem}
-            onPress={handleChangePassword}
-          >
-            <View style={styles.settingItemLeft}>
-              <Ionicons name="lock-closed" size={24} color="#2a9d8f" />
-              <Text style={styles.settingItemText}>Change Password</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
-          </TouchableOpacity>
           
           <TouchableOpacity 
             style={styles.settingItem}
