@@ -1,6 +1,6 @@
 // RegisterScreen.jsx
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 
@@ -10,10 +10,11 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
   const { registerUser } = useAuth();
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!fullName || !email || !phone || !password || !confirmPassword) {
       Alert.alert('Missing Fields', 'Please fill in all the fields.');
       return;
@@ -24,23 +25,37 @@ export default function RegisterScreen() {
       return;
     }
 
-    // Register the user
-    const result = registerUser({
-      fullName,
-      email,
-      phone,
-      password
-    });
+    if (password.length < 6) {
+      Alert.alert('Weak Password', 'Password should be at least 6 characters long.');
+      return;
+    }
 
-    if (result.success) {
-      Alert.alert('Success', 'Account created successfully! Please login.', [
-        {
-          text: 'OK',
-          onPress: () => router.push('/authen/login')
-        }
-      ]);
-    } else {
-      Alert.alert('Registration Failed', result.message);
+    setLoading(true);
+    
+    try {
+      // Register the user
+      const result = await registerUser({
+        fullName,
+        email,
+        phone,
+        password
+      });
+
+      if (result.success) {
+        Alert.alert('Success', 'Account created successfully! Please login.', [
+          {
+            text: 'OK',
+            onPress: () => router.push('/authen/login')
+          }
+        ]);
+      } else {
+        Alert.alert('Registration Failed', result.message);
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -97,8 +112,16 @@ export default function RegisterScreen() {
         onChangeText={setConfirmPassword}
       />
 
-      <TouchableOpacity style={styles.button} onPress={handleRegister}>
-        <Text style={styles.buttonText}>Register</Text>
+      <TouchableOpacity 
+        style={styles.button} 
+        onPress={handleRegister}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>Register</Text>
+        )}
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
