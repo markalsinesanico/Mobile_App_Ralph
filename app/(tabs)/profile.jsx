@@ -12,7 +12,6 @@ const menuItems = [
   { id: '3', title: 'Settings', icon: 'settings' },
   { id: '4', title: 'Help & Support', icon: 'help-circle' },
   { id: '5', title: 'Logout', icon: 'log-out' }, 
-  { id: '6', title: 'Dashboard', icon: 'grid' },
 ];
 
 export default function ProfileScreen() {
@@ -98,6 +97,8 @@ export default function ProfileScreen() {
       handleLogout();
     } else if (item.id === '6') {
       router.push('/Dashboard/HomeDashboard');
+    } else if (item.id === '7') {
+      router.replace('/Admin/AdminDashboard');
     }
   };
 

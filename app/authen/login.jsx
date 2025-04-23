@@ -1,40 +1,50 @@
 // LoginScreen.jsx
+
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import {
+  View, Text, TextInput, TouchableOpacity,
+  StyleSheet, Alert, ActivityIndicator
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 
+// 🔑 BACK OUT TWO LEVELS to reach /firebaseconfig.js
+import { auth, db } from '../../firebaseconfig';
+import { doc, getDoc } from 'firebase/firestore';
+
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
   const router = useRouter();
   const { loginUser } = useAuth();
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Missing Fields', 'Please enter both email and password.');
-      return;
+      return Alert.alert('Missing Fields', 'Please enter both email and password.');
     }
-
     setLoading(true);
-    
     try {
       const result = await loginUser(email, password);
-      
-      if (result.success) {
-        Alert.alert('Login Success', 'Welcome back!', [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/(tabs)')
-          }
-        ]);
+      if (!result.success) {
+        return Alert.alert('Login Failed', result.message);
+      }
+      const uid = auth.currentUser.uid;
+      const userDoc = await getDoc(doc(db, 'users', uid));
+      if (!userDoc.exists()) {
+        throw new Error('No user profile found.');
+      }
+      const { role } = userDoc.data();
+      if (role === 'admin') {
+        router.replace('/Admin/AdminDashboard');
+      } else if (role === 'hotel') {
+        router.replace('/Dashboard/HomeDashboard');
       } else {
-        Alert.alert('Login Failed', result.message);
+        router.replace('/');
       }
     } catch (error) {
       console.error('Login error:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      Alert.alert('Error', error.message || 'An unexpected error occurred.');
     } finally {
       setLoading(false);
     }
@@ -47,7 +57,6 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Login</Text>
-
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -57,7 +66,6 @@ export default function LoginScreen() {
         value={email}
         onChangeText={setEmail}
       />
-
       <TextInput
         style={styles.input}
         placeholder="Password"
@@ -66,21 +74,23 @@ export default function LoginScreen() {
         value={password}
         onChangeText={setPassword}
       />
-
-      <TouchableOpacity 
-        style={styles.button} 
+      <TouchableOpacity
+        style={styles.button}
         onPress={handleLogin}
         disabled={loading}
       >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Log In</Text>
-        )}
+        {loading
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={styles.buttonText}>Log In</Text>
+        }
       </TouchableOpacity>
-
-      <TouchableOpacity style={styles.registerButton} onPress={handleRegister}>
-        <Text style={styles.registerText}>Don't have an account? Register</Text>
+      <TouchableOpacity
+        style={styles.registerButton}
+        onPress={handleRegister}
+      >
+        <Text style={styles.registerText}>
+          Don't have an account? Register
+        </Text>
       </TouchableOpacity>
     </View>
   );

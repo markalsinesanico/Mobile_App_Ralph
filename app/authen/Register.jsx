@@ -1,8 +1,20 @@
-// RegisterScreen.jsx
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, ActivityIndicator } from 'react-native';
+import { 
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ScrollView,
+  ActivityIndicator
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
+
+// Firebase imports
+import { auth, db } from '../../firebaseconfig';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function RegisterScreen() {
   const [fullName, setFullName] = useState('');
@@ -31,37 +43,41 @@ export default function RegisterScreen() {
     }
 
     setLoading(true);
-    
     try {
-      // Register the user
-      const result = await registerUser({
-        fullName,
-        email,
-        phone,
-        password
-      });
-
-      if (result.success) {
-        Alert.alert('Success', 'Account created successfully! Please login.', [
-          {
-            text: 'OK',
-            onPress: () => router.push('/authen/login')
-          }
-        ]);
-      } else {
-        Alert.alert('Registration Failed', result.message);
+      // 1) create Auth user
+      const result = await registerUser({ fullName, email, phone, password });
+      if (!result.success) {
+        throw new Error(result.message || 'Registration failed');
       }
+
+      // 2) write Firestore users doc with role
+      const user = auth.currentUser;
+      if (!user) throw new Error('No authenticated user');
+
+      await setDoc(
+        doc(db, 'users', user.uid),
+        {
+          fullName,
+          email,
+          phone,
+          role: 'user',
+          createdAt: serverTimestamp(),
+        }
+      );
+
+      Alert.alert('Success', 'Account created successfully! Please login.', [
+        { text: 'OK', onPress: () => router.push('/authen/login') }
+      ]);
+
     } catch (error) {
       console.error('Registration error:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      Alert.alert('Error', error.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogin = () => {
-    router.push('/authen/login');
-  };
+  const handleLogin = () => router.push('/authen/login');
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -112,8 +128,8 @@ export default function RegisterScreen() {
         onChangeText={setConfirmPassword}
       />
 
-      <TouchableOpacity 
-        style={styles.button} 
+      <TouchableOpacity
+        style={styles.button}
         onPress={handleRegister}
         disabled={loading}
       >
