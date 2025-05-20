@@ -12,7 +12,9 @@ import {
   getDocs,
   deleteDoc,
   doc,
-  updateDoc
+  updateDoc,
+  query,
+  where
 } from 'firebase/firestore';
 import { db, auth } from '../../firebaseconfig';
 import { signOut } from 'firebase/auth';
@@ -38,8 +40,15 @@ export default function Events() {
   // fetch events
   const fetchEvents = async () => {
     try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        Alert.alert('Error', 'You must be logged in to view events.');
+        return;
+      }
+
       const colRef = collection(db, 'events');
-      const snap = await getDocs(colRef);
+      const q = query(colRef, where('hotelId', '==', currentUser.uid));
+      const snap = await getDocs(q);
       setEventsData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) {
       console.error(e);

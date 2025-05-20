@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 // Firebase imports
 import { auth, db } from '../../firebaseconfig';
 import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, Timestamp, collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const AdminDashboard = () => {
   const [menuVisible, setMenuVisible] = useState(false);
@@ -30,12 +30,58 @@ const AdminDashboard = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [hotels, setHotels] = useState([]);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   const menuOptions = [
     { id: '1', title: 'Hotel List', icon: 'bed', route: '/Admin/HotelList' },
     { id: '2', title: 'Logout', icon: 'log-out', route: '/logout' }
   ];
+
+  // Fetch hotels from Firebase
+  useEffect(() => {
+    const fetchHotels = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.log('No current user found');
+          setLoading(false);
+          return;
+        }
+
+        console.log('Fetching hotels...');
+        const hotelsRef = collection(db, 'users');
+        const q = query(hotelsRef, where('role', '==', 'hotel'));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          console.log('Received snapshot with', snapshot.docs.length, 'hotels');
+          const hotelsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date(),
+          }));
+          
+          // Sort hotels by creation date (newest first)
+          hotelsData.sort((a, b) => b.createdAt - a.createdAt);
+          
+          console.log('Processed hotels:', hotelsData);
+          setHotels(hotelsData);
+          setLoading(false);
+        }, (error) => {
+          console.error('Error fetching hotels:', error);
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error setting up hotels listener:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchHotels();
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -77,7 +123,18 @@ const AdminDashboard = () => {
         phoneNumber: phoneNumber.trim(),
         email: email.trim(),
         role: 'hotel',
+        status: 'active',
         createdAt: Timestamp.now(),
+        // Additional hotel-specific fields
+        address: '',
+        description: '',
+        image: null,
+        pricePerNight: '',
+        amenities: [],
+        rating: 0,
+        reviews: [],
+        rooms: [],
+        bookings: []
       });
 
       Alert.alert('Success', 'Hotel account created successfully!');
@@ -104,6 +161,30 @@ const AdminDashboard = () => {
     </TouchableOpacity>
   );
 
+  const renderRecentHotel = ({ item }) => (
+    <View style={styles.recentHotelCard}>
+      <View style={styles.recentHotelInfo}>
+        <Text style={styles.recentHotelName}>{item.fullName}</Text>
+        <View style={styles.recentHotelDetails}>
+          <View style={styles.infoRow}>
+            <Ionicons name="mail" size={16} color="#747d8c" />
+            <Text style={styles.infoText}>{item.email}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Ionicons name="call" size={16} color="#747d8c" />
+            <Text style={styles.infoText}>{item.phoneNumber}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Ionicons name="time" size={16} color="#747d8c" />
+            <Text style={styles.infoText}>
+              Created: {item.createdAt.toLocaleDateString()}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {/* HEADER */}
@@ -119,7 +200,46 @@ const AdminDashboard = () => {
 
       {/* CONTENT AREA */}
       <ScrollView style={styles.content}>
-        {/* ... other dashboard cards ... */}
+        {/* Hotel Count Box */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statsCard}>
+            <View style={styles.statsIconContainer}>
+              <Ionicons name="bed" size={32} color="#2a9d8f" />
+            </View>
+            <View style={styles.statsInfo}>
+              <Text style={styles.statsNumber}>{hotels.length}</Text>
+              <Text style={styles.statsLabel}>Total Hotels</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Recent Hotels Section */}
+        <View style={styles.recentSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Hotels</Text>
+            <TouchableOpacity onPress={() => router.push('/Admin/HotelList')}>
+              <Text style={styles.viewAllText}>View All</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Loading hotels...</Text>
+            </View>
+          ) : hotels.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="bed" size={40} color="#b2bec3" />
+              <Text style={styles.emptyText}>No hotels found</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={hotels.slice(0, 5)} // Show only 5 most recent hotels
+              renderItem={renderRecentHotel}
+              keyExtractor={item => item.id}
+              scrollEnabled={false}
+            />
+          )}
+        </View>
       </ScrollView>
 
       {/* FAB: Add Hotel Account */}
@@ -238,6 +358,60 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 },
   title: { fontSize: 24, fontWeight: '600', color: 'white' },
   content: { flex: 1, padding: 16 },
+  statsContainer: { marginBottom: 24 },
+  statsCard: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  statsIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#f1f2f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  statsInfo: { flex: 1 },
+  statsNumber: { fontSize: 32, fontWeight: 'bold', color: '#2f3542' },
+  statsLabel: { fontSize: 16, color: '#747d8c', marginTop: 4 },
+  recentSection: { marginBottom: 24 },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#2f3542' },
+  viewAllText: { color: '#2a9d8f', fontSize: 16 },
+  recentHotelCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  recentHotelInfo: { flex: 1 },
+  recentHotelName: { fontSize: 18, fontWeight: 'bold', color: '#2f3542', marginBottom: 8 },
+  recentHotelDetails: { gap: 8 },
+  infoRow: { flexDirection: 'row', alignItems: 'center' },
+  infoText: { fontSize: 14, color: '#747d8c', marginLeft: 8 },
+  loadingContainer: { padding: 20, alignItems: 'center' },
+  loadingText: { fontSize: 16, color: '#747d8c' },
+  emptyContainer: { padding: 20, alignItems: 'center' },
+  emptyText: { fontSize: 16, color: '#747d8c', marginTop: 8 },
   fab: { position: 'absolute', right: 20, bottom: 20, width: 60, height: 60, borderRadius: 30, elevation: 5 },
   fabGradient: { width: '100%', height: '100%', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' },

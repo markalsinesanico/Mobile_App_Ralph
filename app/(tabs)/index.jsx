@@ -1,13 +1,91 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Alert } from "react-native";
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEvents } from '../context/EventsContext';
+import { collection, query, where, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebaseconfig';
 
 export default function Categories() {
   const router = useRouter();
-  const { events, savedEvents, saveEvent, removeSavedEvent, isEventSaved } = useEvents();
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        // First, fetch all hotels to create a map of hotel IDs to names
+        const hotelsRef = collection(db, 'users');
+        const hotelsQuery = query(hotelsRef, where('role', '==', 'hotel'));
+        const hotelsSnapshot = await getDocs(hotelsQuery);
+        const hotelsMap = {};
+        hotelsSnapshot.forEach(doc => {
+          hotelsMap[doc.id] = {
+            name: doc.data().fullName || 'Unknown Hotel',
+            phone: doc.data().phoneNumber || 'No phone available',
+            email: doc.data().email || 'No email available'
+          };
+        });
+
+        // Then fetch events
+        const eventsRef = collection(db, 'events');
+        const q = query(eventsRef, where('status', '==', 'active'));
+        
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
+          const eventsData = await Promise.all(snapshot.docs.map(async doc => {
+            const eventData = doc.data();
+            const hotelId = eventData.hotelId;
+            let hotelInfo = hotelsMap[hotelId] || {
+              name: 'Unknown Hotel',
+              phone: 'No phone available',
+              email: 'No email available'
+            };
+
+            // If hotel not in map, try to fetch it directly
+            if (!hotelsMap[hotelId] && hotelId) {
+              try {
+                const hotelDoc = await getDoc(doc(db, 'users', hotelId));
+                if (hotelDoc.exists()) {
+                  const hotelData = hotelDoc.data();
+                  hotelInfo = {
+                    name: hotelData.fullName || 'Unknown Hotel',
+                    phone: hotelData.phoneNumber || 'No phone available',
+                    email: hotelData.email || 'No email available'
+                  };
+                }
+              } catch (error) {
+                console.error('Error fetching hotel details:', error);
+              }
+            }
+
+            return {
+              id: doc.id,
+              ...eventData,
+              createdAt: eventData.createdAt?.toDate() || new Date(),
+              hotelName: hotelInfo.name,
+              hotelPhone: hotelInfo.phone,
+              hotelEmail: hotelInfo.email
+            };
+          }));
+          
+          // Sort events by date (newest first)
+          eventsData.sort((a, b) => b.createdAt - a.createdAt);
+          setEvents(eventsData);
+          setLoading(false);
+        }, (error) => {
+          console.error('Error fetching events:', error);
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error setting up events listener:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchEvents();
+  }, []);
 
   const handleEventPress = (event) => {
     router.push({
@@ -17,22 +95,24 @@ export default function Categories() {
         title: event.title,
         location: event.location,
         venue: event.venue,
-        image: event.image,
+        image: event.imageUrl,
         description: event.description,
-        categories: event.categories
+        categories: event.categories,
+        hotelId: event.hotelId,
+        hotelName: event.hotelName,
+        hotelPhone: event.hotelPhone,
+        hotelEmail: event.hotelEmail
       }
     });
   };
 
-  const handleBookmarkPress = (event) => {
-    if (isEventSaved(event.id)) {
-      removeSavedEvent(event.id);
-      Alert.alert("Event Removed", "Event has been removed from your saved events.");
-    } else {
-      saveEvent(event);
-      Alert.alert("Event Saved", "Event has been added to your saved events.");
-    }
-  };
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Loading events...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -64,14 +144,8 @@ export default function Categories() {
               </View>
               <Text style={styles.description}>{event.description}</Text>
               <View style={styles.footerRow}>
+                <Text style={styles.hotelName}>By: {event.hotelName}</Text>
                 <Text style={styles.categories}>{event.categories || 'Event'}</Text>
-                <TouchableOpacity onPress={() => handleBookmarkPress(event)}>
-                  <FontAwesome 
-                    name={isEventSaved(event.id) ? "bookmark" : "bookmark-o"} 
-                    size={20} 
-                    color={isEventSaved(event.id) ? "#2a9d8f" : "#888"} 
-                  />
-                </TouchableOpacity>
               </View>
             </View>
           </TouchableOpacity>
@@ -155,5 +229,21 @@ const styles = StyleSheet.create({
     borderTopColor: '#eee',
     borderTopWidth: 1,
     paddingTop: 10
+  },
+  hotelName: {
+    fontSize: 13,
+    color: '#2a9d8f',
+    fontWeight: '500',
+    marginRight: 8
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5'
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666'
   }
 });

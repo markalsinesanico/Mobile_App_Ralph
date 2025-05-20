@@ -67,9 +67,9 @@ export default function UserBooking() {
           return;
         }
 
-        console.log('Fetching all bookings for monitoring');
+        console.log('Fetching bookings for hotel:', currentUser.uid);
         const bookingsRef = collection(db, 'bookings');
-        const q = query(bookingsRef);
+        const q = query(bookingsRef, where('hotelId', '==', currentUser.uid));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
           console.log('Received snapshot with', snapshot.docs.length, 'bookings');

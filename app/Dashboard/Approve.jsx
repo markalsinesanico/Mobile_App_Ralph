@@ -70,7 +70,11 @@ export default function Approve() {
         }
 
         const bookingsRef = collection(db, 'bookings');
-        const q = query(bookingsRef, where('status', '==', 'confirmed'));
+        const q = query(
+          bookingsRef, 
+          where('status', '==', 'confirmed'),
+          where('hotelId', '==', currentUser.uid)
+        );
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const bookingsData = snapshot.docs.map(doc => ({

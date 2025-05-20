@@ -9,7 +9,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEvents } from '../context/EventsContext';
 import { useBookings } from "../context/BookingsContext";
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, updateDoc, doc, where } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, updateDoc, doc, where, getDoc } from 'firebase/firestore';
 import { db } from '../../firebaseconfig';
 import { useAuth } from '../context/AuthContext';
 
@@ -24,6 +24,7 @@ export default function EventDetailsScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [event, setEvent] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [hotelInfo, setHotelInfo] = useState(null);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -39,33 +40,54 @@ export default function EventDetailsScreen() {
   ];
 
   useEffect(() => {
-    // If we have an ID, get the event from context
-    if (params.id) {
-      const eventData = getEventById(params.id);
-      if (eventData) {
+    const initializeEvent = async () => {
+      try {
+        let eventData;
+        if (params.id) {
+          eventData = getEventById(params.id);
+        }
+        
+        if (!eventData) {
+          // Fallback to params if event not found in context
+          eventData = {
+            id: params.id,
+            title: params.title || 'Untitled Event',
+            location: params.location || 'No location specified',
+            venue: params.venue || 'No venue specified',
+            imageUrl: params.image,
+            description: params.description || 'No description available',
+            hotelId: params.hotelId,
+            hotelName: params.hotelName || 'Unknown Hotel',
+            hotelPhone: params.hotelPhone || 'No phone available',
+            hotelEmail: params.hotelEmail || 'No email available'
+          };
+        }
+
         setEvent(eventData);
-      } else {
-        // Fallback to params if event not found in context
-        setEvent({
-          id: params.id,
-          title: params.title,
-          location: params.location,
-          venue: params.venue,
-          imageUrl: params.imageUrl,
-          description: params.description
-        });
+
+        // Fetch hotel information
+        if (eventData.hotelId) {
+          try {
+            const hotelDoc = await getDoc(doc(db, 'users', eventData.hotelId));
+            if (hotelDoc.exists()) {
+              const hotelData = hotelDoc.data();
+              setHotelInfo({
+                name: hotelData.fullName || 'Unknown Hotel',
+                phone: hotelData.phoneNumber || 'No phone available',
+                email: hotelData.email || 'No email available'
+              });
+            }
+          } catch (error) {
+            console.error('Error fetching hotel details:', error);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing event:', error);
+        Alert.alert('Error', 'Failed to load event details. Please try again.');
       }
-    } else {
-      // Fallback to params if no ID (for backward compatibility)
-      setEvent({
-        id: params.id,
-        title: params.title,
-        location: params.location,
-        venue: params.venue,
-        imageUrl: params.imageUrl,
-        description: params.description
-      });
-    }
+    };
+
+    initializeEvent();
   }, [params, getEventById]);
 
   const handleSubmit = async () => {
@@ -76,6 +98,11 @@ export default function EventDetailsScreen() {
 
     if (!currentUser) {
       Alert.alert('Error', 'Please log in to make a booking');
+      return;
+    }
+
+    if (!event) {
+      Alert.alert('Error', 'Event information is not available');
       return;
     }
 
@@ -91,7 +118,9 @@ export default function EventDetailsScreen() {
         phone: formData.phoneNumber,
         eventType: formData.eventType,
         status: 'pending',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        hotelId: event.hotelId,
+        hotelName: event.hotelName || 'Unknown Hotel'
       };
 
       // Add to Firestore
@@ -181,34 +210,43 @@ export default function EventDetailsScreen() {
 
       <ScrollView style={styles.scrollView}>
         <Image 
-          source={event.imageUrl ? { uri: event.imageUrl } : require('../../assets/convention.jpg')}
+          source={event?.imageUrl ? { uri: event.imageUrl } : require('../../assets/convention.jpg')}
           style={styles.eventImage}
           defaultSource={require('../../assets/convention.jpg')}
         />
 
-
         <View style={styles.section}>
           <Text style={styles.subTitle}>Location</Text>
           <View style={styles.mapCard}>
-            <Text>{event.location}</Text>
+            <Text>{event?.location}</Text>
           </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.subTitle}>Description</Text>
-          <Text>{event.description}</Text>
+          <Text>{event?.description}</Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.subTitle}>About Organiser</Text>
           <View style={styles.organiserCard}>
-            <View style={styles.profilePic} />
+            <View style={styles.profilePic}>
+              <Ionicons name="business" size={24} color="white" />
+            </View>
             <View>
-              <Text style={styles.organiserName}>Mong Sin</Text>
+              <Text style={styles.organiserName}>{hotelInfo?.name || 'Unknown Hotel'}</Text>
+              {hotelInfo?.phone && (
+                <Text style={styles.organiserDetails}>
+                  <Ionicons name="call" size={14} color="#666" /> {hotelInfo.phone}
+                </Text>
+              )}
+              {hotelInfo?.email && (
+                <Text style={styles.organiserDetails}>
+                  <Ionicons name="mail" size={14} color="#666" /> {hotelInfo.email}
+                </Text>
+              )}
             </View>
           </View>
-
-  
         </View>
 
         <TouchableOpacity
@@ -350,7 +388,6 @@ export default function EventDetailsScreen() {
         </View>
       </Modal>
 
-      {/* Receipt Modal */}
       <Modal
         visible={isReceiptVisible}
         animationType="slide"
@@ -384,11 +421,11 @@ export default function EventDetailsScreen() {
               </View>
 
               <View style={styles.receiptSection}>
-          <Text style={styles.receiptSectionTitle}>Customer Information</Text>
-          <Text style={styles.receiptText}>Name: {selectedBooking.fullName}</Text>
-          <Text style={styles.receiptText}>Email: {selectedBooking.email}</Text>
-          <Text style={styles.receiptText}>Phone: {selectedBooking.phone}</Text>
-        </View>
+                <Text style={styles.receiptSectionTitle}>Customer Information</Text>
+                <Text style={styles.receiptText}>Name: {selectedBooking?.fullName}</Text>
+                <Text style={styles.receiptText}>Email: {selectedBooking?.email}</Text>
+                <Text style={styles.receiptText}>Phone: {selectedBooking?.phone}</Text>
+              </View>
 
               <TouchableOpacity
                 style={styles.viewBookingButton}
@@ -430,9 +467,36 @@ const styles = StyleSheet.create({
     borderRadius: 5, alignItems: 'center',
   },
   viewMapText: { color: 'white', fontWeight: 'bold' },
-  organiserCard: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  profilePic: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#ddd', marginRight: 10 },
-  organiserName: { fontSize: 16, fontWeight: 'bold' },
+  organiserCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    padding: 15,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#eee'
+  },
+  profilePic: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#2a9d8f',
+    marginRight: 15,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  organiserName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2f3542',
+    marginBottom: 4
+  },
+  organiserDetails: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 2
+  },
   links: { marginTop: 10 },
   linkText: { color: '#2a9d8f', textDecorationLine: 'underline' },
   checkOutButton: {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Modal, FlatList,
   TextInput, Image, ScrollView, KeyboardAvoidingView, Platform, Alert
@@ -11,7 +11,7 @@ import { useEvents } from '../context/EventsContext';
 
 // Firebase imports
 import { auth, db } from '../../firebaseconfig';
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, query, where, getDocs, orderBy, limit, doc, updateDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 
 // Cloudinary config
@@ -26,8 +26,77 @@ const Dashboard = () => {
   const [eventLocation, setEventLocation] = useState('');
   const [eventDescription, setEventDescription] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [stats, setStats] = useState({
+    totalEvents: 0,
+    totalBookings: 0,
+    approvedBookings: 0
+  });
+  const [recentBookings, setRecentBookings] = useState([]);
   const router = useRouter();
   const { addEvent } = useEvents();
+
+  // Fetch statistics and recent bookings
+  useEffect(() => {
+    const fetchStatsAndBookings = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) return;
+
+        // Fetch total events
+        const eventsQuery = query(
+          collection(db, 'events'),
+          where('hotelId', '==', currentUser.uid)
+        );
+        const eventsSnapshot = await getDocs(eventsQuery);
+        const totalEvents = eventsSnapshot.size;
+
+        // Fetch total bookings
+        const bookingsQuery = query(
+          collection(db, 'bookings'),
+          where('hotelId', '==', currentUser.uid)
+        );
+        const bookingsSnapshot = await getDocs(bookingsQuery);
+        const totalBookings = bookingsSnapshot.size;
+
+        // Fetch approved bookings
+        const approvedBookingsQuery = query(
+          collection(db, 'bookings'),
+          where('hotelId', '==', currentUser.uid),
+          where('status', '==', 'confirmed')
+        );
+        const approvedBookingsSnapshot = await getDocs(approvedBookingsQuery);
+        const approvedBookings = approvedBookingsSnapshot.size;
+
+        // Fetch recent pending bookings only
+        const recentBookingsQuery = query(
+          collection(db, 'bookings'),
+          where('hotelId', '==', currentUser.uid),
+          where('status', '==', 'pending')
+        );
+        const recentBookingsSnapshot = await getDocs(recentBookingsQuery);
+        const recentBookingsData = recentBookingsSnapshot.docs
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt || Timestamp.now()
+          }))
+          .sort((a, b) => b.createdAt.toDate() - a.createdAt.toDate())
+          .slice(0, 5);
+
+        setStats({
+          totalEvents,
+          totalBookings,
+          approvedBookings
+        });
+        setRecentBookings(recentBookingsData);
+      } catch (error) {
+        console.error('Error fetching stats:', error);
+        Alert.alert('Error', 'Failed to load statistics. Please try again later.');
+      }
+    };
+
+    fetchStatsAndBookings();
+  }, []);
 
   const menuOptions = [
     { id: '1', title: 'Events', icon: 'calendar', route: '/Dashboard/Events' },
@@ -107,6 +176,12 @@ const Dashboard = () => {
     }
 
     try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        Alert.alert('Error', 'You must be logged in to create an event.');
+        return;
+      }
+
       // upload to Cloudinary
       const imageUrl = await uploadImageToCloudinary(eventImage);
 
@@ -118,7 +193,9 @@ const Dashboard = () => {
         categories: 'Event',
         venue: eventLocation,
         createdAt: Timestamp.now(),
-        userId: auth.currentUser?.uid || ''
+        hotelId: currentUser.uid,
+        hotelName: currentUser.displayName || 'Unknown Hotel',
+        status: 'active'
       };
 
       // add to Firestore
@@ -133,6 +210,34 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Error adding event:', error);
       Alert.alert('Error', error.message || 'Could not save event.');
+    }
+  };
+
+  // Add function to handle booking status updates
+  const handleBookingStatus = async (bookingId, newStatus) => {
+    try {
+      const bookingRef = doc(db, 'bookings', bookingId);
+      await updateDoc(bookingRef, {
+        status: newStatus
+      });
+
+      // Update local state
+      setRecentBookings(prevBookings => 
+        prevBookings.filter(booking => booking.id !== bookingId)
+      );
+
+      // Update stats
+      setStats(prevStats => ({
+        ...prevStats,
+        approvedBookings: newStatus === 'confirmed' 
+          ? prevStats.approvedBookings + 1 
+          : prevStats.approvedBookings
+      }));
+
+      Alert.alert('Success', `Booking ${newStatus === 'confirmed' ? 'approved' : 'rejected'} successfully`);
+    } catch (error) {
+      console.error('Error updating booking status:', error);
+      Alert.alert('Error', 'Failed to update booking status');
     }
   };
 
@@ -160,7 +265,81 @@ const Dashboard = () => {
       </LinearGradient>
 
       {/* CONTENT */}
-      <ScrollView style={styles.content}>{/* ...cards & activity... */}</ScrollView>
+      <ScrollView style={styles.content}>
+        {/* Statistics Cards */}
+        <View style={styles.cards}>
+          <View style={styles.card}>
+            <View style={styles.cardIconContainer}>
+              <Ionicons name="calendar" size={24} color="#2a9d8f" />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Total Events</Text>
+              <Text style={styles.cardValue}>{stats.totalEvents}</Text>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.cardIconContainer}>
+              <Ionicons name="book" size={24} color="#2a9d8f" />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Total Bookings</Text>
+              <Text style={styles.cardValue}>{stats.totalBookings}</Text>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.cardIconContainer}>
+              <Ionicons name="checkmark-circle" size={24} color="#2a9d8f" />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Total Approved</Text>
+              <Text style={styles.cardValue}>{stats.approvedBookings}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* New Bookings */}
+        <View style={styles.bookingsSection}>
+  <Text style={styles.bookingsTitle}>New Bookings</Text>
+  {recentBookings.length > 0 ? (
+    recentBookings.map((booking) => (
+      <View key={booking.id} style={styles.bookingCard}>
+        <View style={styles.bookingInfo}>
+          <Text style={styles.bookingEvent}>{booking.eventTitle}</Text>
+          <Text style={styles.bookingUser}>{booking.fullName}</Text>
+          <Text style={styles.bookingDate}>
+            {booking.createdAt?.toDate().toLocaleDateString()}
+          </Text>
+        </View>
+
+        <View style={styles.bookingButtons}>
+          <TouchableOpacity
+            style={[styles.button, styles.approve]}
+            onPress={() => handleBookingStatus(booking.id, 'confirmed')}
+          >
+            <Ionicons name="checkmark" size={16} color="#fff" />
+            <Text style={styles.buttonText}>Approve</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.reject]}
+            onPress={() => handleBookingStatus(booking.id, 'rejected')}
+          >
+            <Ionicons name="close" size={16} color="#fff" />
+            <Text style={styles.buttonText}>Reject</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    ))
+  ) : (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyText}>No new bookings</Text>
+    </View>
+  )}
+</View>
+       
+      </ScrollView>
 
       {/* FAB */}
       <TouchableOpacity style={styles.fab} onPress={() => setAddFormVisible(true)}>
@@ -352,42 +531,58 @@ const styles = StyleSheet.create({
   activityList: {
     gap: 12,
   },
-  activityItem: {
-    flexDirection: 'row',
+  bookingItem: {
     backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 16,
-    elevation: 1,
+    marginBottom: 12,
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.1,
     shadowRadius: 2,
   },
-  activityIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  activityContent: {
+  bookingContent: {
     flex: 1,
   },
-  activityTitle: {
+  bookingTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#2f3542',
     marginBottom: 4,
   },
-  activityDesc: {
+  bookingDesc: {
     fontSize: 14,
-    color: '#747d8c',
+    color: '#666',
     marginBottom: 4,
   },
-  activityTime: {
+  bookingTime: {
     fontSize: 12,
     color: '#a4b0be',
+  },
+  bookingActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+    gap: 8,
+  },
+  actionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  approveButton: {
+    backgroundColor: '#4CAF50',
+  },
+  rejectButton: {
+    backgroundColor: '#F44336',
+  },
+  actionButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
   },
   fab: {
     position: 'absolute',
@@ -519,5 +714,106 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  noBookingsContainer: {
+    padding: 20,
+    alignItems: 'center',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    marginTop: 10,
+  },
+  noBookingsText: {
+    fontSize: 16,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  bookingsSection: {
+    marginVertical: 20,
+    paddingHorizontal: 16,
+  },
+  bookingsTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#264653',
+    marginBottom: 12,
+  },
+  bookingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    // Android
+    elevation: 2,
+    // iOS
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  bookingInfo: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  bookingEvent: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2a9d8f',
+    marginBottom: 4,
+  },
+  bookingUser: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 2,
+  },
+  bookingDate: {
+    fontSize: 12,
+    color: '#888',
+  },
+  bookingButtons: {
+    flexDirection: 'row',
+  },
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  approve: {
+    backgroundColor: '#4CAF50',
+  },
+  reject: {
+    backgroundColor: '#F44336',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  emptyState: {
+    padding: 20,
+    borderRadius: 10,
+    backgroundColor: '#f8f8f8',
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#888',
+    fontStyle: 'italic',
+  },
 });
+
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'confirmed':
+      return '#4CAF50';
+    case 'rejected':
+      return '#F44336';
+    default:
+      return '#FFC107';
+  }
+};
   

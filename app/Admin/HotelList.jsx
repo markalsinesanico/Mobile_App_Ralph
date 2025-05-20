@@ -1,91 +1,107 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Image,
   Alert, KeyboardAvoidingView, Platform, Modal, FlatList
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useHotels } from '../context/HotelsContext';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../../firebaseconfig';
+import { signOut } from 'firebase/auth';
 
 export default function HotelList() {
   const router = useRouter();
-  const { hotels, loading, deleteHotel } = useHotels();
+  const [hotels, setHotels] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
-  const [selectedHotel, setSelectedHotel] = useState(null);
 
   const menuOptions = [
-    { id: '1', title: 'Dashboard', icon: 'home', route: '/AdminDashboard' },
+    { id: '1', title: 'Dashboard', icon: 'home', route: '/Admin/AdminDashboard' },
     { id: '2', title: 'Logout', icon: 'log-out', route: '/logout' },
   ];
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.replace('/authen/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
+    }
+  };
 
   const handleMenuOption = (route) => {
     setMenuVisible(false);
     if (route === '/logout') {
-      console.log('Logout pressed');
+      handleLogout();
     } else {
       router.push(route);
     }
   };
 
-  const handleDeleteHotel = async (hotelId) => {
-    Alert.alert(
-      'Delete Hotel',
-      'Are you sure you want to delete this hotel?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteHotel(hotelId);
-              Alert.alert('Success', 'Hotel deleted successfully');
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete hotel');
-            }
-          },
-        },
-      ]
-    );
-  };
+  // Fetch hotels from Firebase
+  useEffect(() => {
+    const fetchHotels = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.log('No current user found');
+          setLoading(false);
+          return;
+        }
 
-  const handleEditHotel = (hotelId) => {
-    router.push(`/Dashboard/EditHotel?id=${hotelId}`);
-  };
+        console.log('Fetching hotels...');
+        const hotelsRef = collection(db, 'users');
+        const q = query(hotelsRef, where('role', '==', 'hotel'));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          console.log('Received snapshot with', snapshot.docs.length, 'hotels');
+          const hotelsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date(),
+          }));
+          
+          console.log('Processed hotels:', hotelsData);
+          setHotels(hotelsData);
+          setLoading(false);
+        }, (error) => {
+          console.error('Error fetching hotels:', error);
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error setting up hotels listener:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchHotels();
+  }, []);
 
   const renderHotelItem = ({ item }) => (
     <View style={styles.hotelCard}>
-      {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.hotelImage} />
-      ) : (
-        <View style={styles.imagePlaceholder}>
-          <Ionicons name="bed" size={40} color="#b2bec3" />
-          <Text style={styles.imagePlaceholderText}>No Image</Text>
-        </View>
-      )}
       <View style={styles.hotelInfo}>
-        <Text style={styles.hotelName}>{item.name}</Text>
-        <Text style={styles.hotelAddress}>{item.address}</Text>
-        <Text style={styles.hotelPrice}>${item.pricePerNight} per night</Text>
-        <Text style={styles.hotelDescription} numberOfLines={2}>
-          {item.description}
-        </Text>
-        <View style={styles.hotelActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.editButton]}
-            onPress={() => handleEditHotel(item.id)}
-          >
-            <Ionicons name="create" size={20} color="white" />
-            <Text style={styles.actionButtonText}>Edit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.deleteButton]}
-            onPress={() => handleDeleteHotel(item.id)}
-          >
-            <Ionicons name="trash" size={20} color="white" />
-            <Text style={styles.actionButtonText}>Delete</Text>
-          </TouchableOpacity>
+        <Text style={styles.hotelName}>{item.fullName}</Text>
+        <View style={styles.infoRow}>
+          <Ionicons name="mail" size={16} color="#747d8c" />
+          <Text style={styles.infoText}>{item.email}</Text>
+        </View>
+        <View style={styles.infoRow}>
+          <Ionicons name="call" size={16} color="#747d8c" />
+          <Text style={styles.infoText}>{item.phoneNumber}</Text>
+        </View>
+        <View style={styles.infoRow}>
+          <Ionicons name="time" size={16} color="#747d8c" />
+          <Text style={styles.infoText}>
+            Created: {item.createdAt.toLocaleDateString()}
+          </Text>
+        </View>
+        <View style={styles.infoRow}>
+          <Ionicons name="checkmark-circle" size={16} color="#747d8c" />
+          <Text style={styles.infoText}>Status: {item.status || 'active'}</Text>
         </View>
       </View>
     </View>
@@ -161,40 +177,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 15,
     marginBottom: 16,
-    overflow: 'hidden',
+    padding: 16,
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  hotelImage: { width: '100%', height: 200 },
-  imagePlaceholder: {
-    width: '100%',
-    height: 200,
-    backgroundColor: '#f1f2f6',
-    justifyContent: 'center',
-    alignItems: 'center',
+  hotelInfo: { flex: 1 },
+  hotelName: { 
+    fontSize: 20, 
+    fontWeight: 'bold', 
+    color: '#2f3542', 
+    marginBottom: 12 
   },
-  imagePlaceholderText: { marginTop: 10, color: '#b2bec3', fontSize: 16 },
-  hotelInfo: { padding: 16 },
-  hotelName: { fontSize: 20, fontWeight: 'bold', color: '#2f3542', marginBottom: 8 },
-  hotelAddress: { fontSize: 16, color: '#636e72', marginBottom: 8 },
-  hotelPrice: { fontSize: 18, fontWeight: '600', color: '#2a9d8f', marginBottom: 8 },
-  hotelDescription: { fontSize: 14, color: '#636e72', marginBottom: 16 },
-  hotelActions: { flexDirection: 'row', justifyContent: 'space-between' },
-  actionButton: {
-    flex: 1,
+  infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    marginHorizontal: 4,
+    marginBottom: 8,
   },
-  editButton: { backgroundColor: '#2a9d8f' },
-  deleteButton: { backgroundColor: '#e74c3c' },
-  actionButtonText: { color: 'white', marginLeft: 8, fontWeight: 'bold' },
+  infoText: {
+    fontSize: 14,
+    color: '#747d8c',
+    marginLeft: 8,
+  },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 18, color: '#636e72' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },

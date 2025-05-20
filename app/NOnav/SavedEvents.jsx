@@ -19,9 +19,13 @@ export default function SavedEvents() {
         title: event.title,
         location: event.location,
         venue: event.venue,
-        imageUrl: event.imageUrl,
+        image: event.imageUrl,
         description: event.description || "No description available",
-        categories: event.categories || "General"
+        categories: event.categories || "General",
+        hotelId: event.hotelId,
+        hotelName: event.hotelName,
+        hotelPhone: event.hotelPhone,
+        hotelEmail: event.hotelEmail
       }
     });
   };
