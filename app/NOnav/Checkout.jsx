@@ -205,15 +205,10 @@ export default function EventDetailsScreen() {
             <View style={styles.profilePic} />
             <View>
               <Text style={styles.organiserName}>Mong Sin</Text>
-              <Text>&#11088; 0.00 (0)</Text>
             </View>
           </View>
 
-          <View style={styles.links}>
-            <TouchableOpacity onPress={() => router.push('/NOnav/OrganizerProfile')}>
-              <Text style={styles.linkText}>View Profile</Text>
-            </TouchableOpacity>
-          </View>
+  
         </View>
 
         <TouchableOpacity
@@ -379,7 +374,6 @@ export default function EventDetailsScreen() {
                 <Text style={styles.receiptSectionTitle}>Event Information</Text>
                 <Text style={styles.receiptText}>Event: {event.title}</Text>
                 <Text style={styles.receiptText}>Type: {formData.eventType}</Text>
-                <Text style={styles.receiptText}>Date: {formData.date}</Text>
                 <Text style={styles.receiptText}>Location: {event.location}</Text>
               </View>
 
@@ -390,11 +384,11 @@ export default function EventDetailsScreen() {
               </View>
 
               <View style={styles.receiptSection}>
-                <Text style={styles.receiptSectionTitle}>Customer Information</Text>
-                <Text style={styles.receiptText}>Name: {formData.fullName}</Text>
-                <Text style={styles.receiptText}>Email: {formData.email}</Text>
-                <Text style={styles.receiptText}>Phone: {formData.phoneNumber}</Text>
-              </View>
+          <Text style={styles.receiptSectionTitle}>Customer Information</Text>
+          <Text style={styles.receiptText}>Name: {selectedBooking.fullName}</Text>
+          <Text style={styles.receiptText}>Email: {selectedBooking.email}</Text>
+          <Text style={styles.receiptText}>Phone: {selectedBooking.phone}</Text>
+        </View>
 
               <TouchableOpacity
                 style={styles.viewBookingButton}

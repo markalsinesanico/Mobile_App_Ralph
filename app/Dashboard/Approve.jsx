@@ -1,34 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, FlatList, Modal } from 'react-native';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  Image, ActivityIndicator, FlatList, Modal, TextInput, Alert
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useBookings } from '../context/BookingsContext';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../../firebaseconfig';
+import { signOut } from 'firebase/auth';
 
 export default function Approve() {
   const router = useRouter();
-  const { bookings } = useBookings();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [approvedBookings, setApprovedBookings] = useState([]);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const menuOptions = [
     { id: '1', title: 'Home', icon: 'home', route: '/Dashboard/HomeDashboard' },
     { id: '2', title: 'Events', icon: 'calendar', route: '/Dashboard/Events' },
     { id: '3', title: 'User Booking', icon: 'book', route: '/Dashboard/UserBooking' },
     { id: '4', title: 'Approve Booking', icon: 'checkmark-circle', route: '/Dashboard/Approve' },
-    { id: '5', title: 'Settings', icon: 'settings', route: '/Dashboard/Settings' },
+    { id: '5', title: 'Logout', icon: 'log-out', route: '/logout' },
   ];
 
   const handleMenuOption = (route) => {
     setMenuVisible(false);
     if (route === '/logout') {
-      // Handle logout logic here
-      console.log('Logout pressed');
+      handleLogout();
     } else {
       router.push(route);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.replace('/authen/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
     }
   };
 
@@ -46,47 +60,70 @@ export default function Approve() {
   );
 
   useEffect(() => {
-    try {
-      if (bookings && bookings.length > 0) {
-        // Filter for confirmed bookings
-        const confirmedBookings = bookings.filter(booking => booking.status === 'confirmed');
-        setApprovedBookings(confirmedBookings);
-        
-        if (confirmedBookings.length > 0) {
-          setSelectedBooking(confirmedBookings[0]);
+    const fetchApprovedBookings = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          setError("Please log in to view approved bookings");
+          setLoading(false);
+          return;
         }
-      }
-    } catch (error) {
-      console.error('Error loading approved bookings:', error);
-      setError("Failed to load approved bookings");
-    } finally {
-      setLoading(false);
-    }
-  }, [bookings]);
 
-  const handleBack = () => {
-    router.back();
-  };
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(bookingsRef, where('status', '==', 'confirmed'));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const bookingsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date(),
+            eventTitle: doc.data().eventTitle || 'Untitled Event',
+            eventDate: doc.data().eventDate || 'No date specified',
+            eventType: doc.data().eventType || 'Not specified',
+            eventLocation: doc.data().eventLocation || 'No location specified',
+            eventImage: doc.data().eventImage || null,
+            fullName: doc.data().fullName || 'No name specified',
+            email: doc.data().email || 'No email specified',
+            phone: doc.data().phone || 'No phone specified',
+            status: doc.data().status || 'pending'
+          }));
+          
+          bookingsData.sort((a, b) => b.createdAt - a.createdAt);
+          setApprovedBookings(bookingsData);
+          if (bookingsData.length > 0) {
+            setSelectedBooking(bookingsData[0]);
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error('Error fetching approved bookings:', error);
+          setError('Failed to load approved bookings');
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error setting up approved bookings listener:', error);
+        setError('Failed to load approved bookings');
+        setLoading(false);
+      }
+    };
+
+    fetchApprovedBookings();
+  }, []);
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'confirmed':
-        return '#4CAF50';
-      case 'rejected':
-        return '#F44336';
-      default:
-        return '#FFC107';
+      case 'confirmed': return '#4CAF50';
+      case 'rejected':  return '#F44336';
+      default:          return '#FFC107';
     }
   };
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case 'confirmed':
-        return 'checkmark-circle';
-      case 'rejected':
-        return 'close-circle';
-      default:
-        return 'time';
+      case 'confirmed': return 'checkmark-circle';
+      case 'rejected':  return 'close-circle';
+      default:          return 'time';
     }
   };
 
@@ -118,23 +155,17 @@ export default function Approve() {
 
   const renderBookingDetails = () => {
     if (!selectedBooking) return null;
-
     return (
       <View style={styles.detailsContainer}>
         <View style={styles.detailsHeader}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => setSelectedBooking(null)}
-          >
+          <TouchableOpacity style={styles.backButton} onPress={() => setSelectedBooking(null)}>
             <Ionicons name="arrow-back" size={24} color="#2f3542" />
           </TouchableOpacity>
           <Text style={styles.detailsTitle}>Booking Details</Text>
           <View style={{ width: 24 }} />
         </View>
-
         <ScrollView style={styles.detailsContent}>
           <Image source={{ uri: selectedBooking.eventImage }} style={styles.detailsImage} />
-          
           <View style={styles.detailsSection}>
             <Text style={styles.sectionTitle}>Event Information</Text>
             <Text style={styles.detailsText}>Event: {selectedBooking.eventTitle}</Text>
@@ -142,14 +173,12 @@ export default function Approve() {
             <Text style={styles.detailsText}>Date: {selectedBooking.eventDate}</Text>
             <Text style={styles.detailsText}>Location: {selectedBooking.eventLocation}</Text>
           </View>
-
           <View style={styles.detailsSection}>
             <Text style={styles.sectionTitle}>Customer Information</Text>
             <Text style={styles.detailsText}>Name: {selectedBooking.fullName}</Text>
             <Text style={styles.detailsText}>Email: {selectedBooking.email}</Text>
             <Text style={styles.detailsText}>Phone: {selectedBooking.phone}</Text>
           </View>
-
           <View style={styles.detailsSection}>
             <Text style={styles.sectionTitle}>Booking Status</Text>
             <View style={[
@@ -184,30 +213,17 @@ export default function Approve() {
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={60} color="#F44336" />
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={handleBack}
-        >
+        <TouchableOpacity style={styles.retryButton} onPress={() => router.back()}>
           <Text style={styles.retryButtonText}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  if (!approvedBookings || approvedBookings.length === 0) {
-    return (
-      <View style={styles.errorContainer}>
-        <Ionicons name="checkmark-circle-outline" size={60} color="#2a9d8f" />
-        <Text style={styles.errorText}>No approved bookings found</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={handleBack}
-        >
-          <Text style={styles.retryButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const filtered = approvedBookings.filter(b =>
+    b.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    b.email.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <View style={styles.container}>
@@ -224,25 +240,42 @@ export default function Approve() {
         </View>
       </LinearGradient>
 
-      <View style={styles.content}>
-        {selectedBooking ? (
-          <ScrollView style={styles.content}>
-            {renderBookingDetails()}
-          </ScrollView>
-        ) : (
-          <FlatList
-            data={approvedBookings}
-            renderItem={renderBookingItem}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.listContainer}
+      {/* Search Bar */}
+      <View style={{ padding: 16, backgroundColor: 'white' }}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#f1f2f6',
+          borderRadius: 8,
+          paddingHorizontal: 12
+        }}>
+          <Ionicons name="search" size={20} color="#666" />
+          <TextInput
+            style={{ flex: 1, marginLeft: 8, height: 40 }}
+            placeholder="Search by name or email"
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            autoCapitalize="none"
           />
-        )}
+        </View>
+      </View>
+
+      <View style={styles.content}>
+        {selectedBooking
+          ? <ScrollView style={styles.content}>{renderBookingDetails()}</ScrollView>
+          : <FlatList
+              data={filtered}
+              renderItem={renderBookingItem}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.listContainer}
+            />
+        }
       </View>
 
       {/* Side Menu Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent
         visible={menuVisible}
         onRequestClose={() => setMenuVisible(false)}
       >
@@ -268,216 +301,68 @@ export default function Approve() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5'
   },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
+  loadingText: { marginTop: 10, fontSize: 16, color: '#666' },
   errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 20,
+    flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5', padding: 20
   },
-  errorText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  retryButton: {
-    backgroundColor: '#2a9d8f',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  headerGradient: {
-    paddingTop: 10,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
+  errorText: { marginTop: 10, fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 20 },
+  retryButton: { backgroundColor: '#2a9d8f', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8 },
+  retryButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  headerGradient: { paddingTop: 10, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: 'transparent',
+    flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: 'transparent'
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '600',
-    marginLeft: 16,
-    color: 'white',
-  },
-  content: {
-    flex: 1,
-  },
-  listContainer: {
-    padding: 16,
-  },
+  title: { fontSize: 24, fontWeight: '600', marginLeft: 16, color: 'white' },
+  content: { flex: 1 },
+  listContainer: { padding: 16 },
   bookingCard: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    borderRadius: 8,
-    marginBottom: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    alignItems: 'center',
+    flexDirection: 'row', backgroundColor: 'white', borderRadius: 8,
+    marginBottom: 12, padding: 12, shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1,
+    shadowRadius: 4, elevation: 3, alignItems: 'center'
   },
-  bookingInfo: {
-    flex: 1,
-  },
-  eventTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    color: '#2f3542',
-  },
-  customerName: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  bookingDate: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
+  bookingInfo: { flex: 1 },
+  eventTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 4, color: '#2f3542' },
+  customerName: { fontSize: 14, color: '#666', marginBottom: 4 },
+  bookingDate: { fontSize: 14, color: '#666', marginBottom: 4 },
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4
   },
-  statusIcon: {
-    marginRight: 4,
-  },
-  statusText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  detailsContainer: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
+  statusIcon: { marginRight: 4 },
+  statusText: { color: 'white', fontSize: 12, fontWeight: 'bold' },
+  detailsContainer: { flex: 1, backgroundColor: '#f8f9fa' },
   detailsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 16, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#eee'
   },
-  detailsTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2f3542',
-  },
-  backButton: {
-    padding: 8,
-  },
-  detailsContent: {
-    flex: 1,
-    padding: 16,
-  },
-  detailsImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  detailsSection: {
-    backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2f3542',
-    marginBottom: 12,
-  },
-  detailsText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 8,
-  },
+  detailsTitle: { fontSize: 18, fontWeight: 'bold', color: '#2f3542' },
+  backButton: { padding: 8 },
+  detailsContent: { flex: 1, padding: 16 },
+  detailsImage: { width: '100%', height: 200, borderRadius: 8, marginBottom: 16 },
+  detailsSection: { backgroundColor: 'white', borderRadius: 8, padding: 16, marginBottom: 16 },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#2f3542', marginBottom: 12 },
+  detailsText: { fontSize: 14, color: '#666', marginBottom: 8 },
   statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  sideMenuContent: {
-    backgroundColor: 'white',
-    width: '80%',
-    height: '100%',
-    padding: 20,
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+  sideMenuContent: { backgroundColor: 'white', width: '80%', height: '100%', padding: 20 },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f2f6',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 20, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f1f2f6'
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2f3542',
-  },
-  menuList: {
-    marginBottom: 20,
-  },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#2f3542' },
+  menuList: { marginBottom: 20 },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f2f6',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f1f2f6'
   },
-  menuItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  menuItemText: {
-    fontSize: 16,
-    marginLeft: 15,
-    color: '#2f3542',
-  },
+  menuItemContent: { flexDirection: 'row', alignItems: 'center' },
+  menuItemText: { fontSize: 16, marginLeft: 15, color: '#2f3542' },
 });
-

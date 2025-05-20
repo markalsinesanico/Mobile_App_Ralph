@@ -3,14 +3,14 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, Fla
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useBookings } from '../context/BookingsContext';
-import { collection, query, orderBy, onSnapshot, updateDoc, doc } from 'firebase/firestore';
-import { db } from '../../firebaseconfig';
+import { collection, query, orderBy, onSnapshot, updateDoc, doc, where, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../../firebaseconfig';
+import { signOut } from 'firebase/auth';
 
 export default function UserBooking() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { bookings, updateBookingStatus } = useBookings();
+  const [bookings, setBookings] = useState([]);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,14 +20,23 @@ export default function UserBooking() {
     { id: '1', title: 'Home', icon: 'home', route: '/Dashboard/HomeDashboard' },
     { id: '2', title: 'Events', icon: 'calendar', route: '/Dashboard/Events' },
     { id: '3', title: 'Approve Booking', icon: 'checkmark-circle', route: '/Dashboard/Approve' },
-    { id: '4', title: 'Settings', icon: 'settings', route: '/Dashboard/Settings' },
+    { id: '4', title: 'Logout', icon: 'log-out', route: '/logout' },
   ];
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.replace('/authen/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
+    }
+  };
 
   const handleMenuOption = (route) => {
     setMenuVisible(false);
     if (route === '/logout') {
-      // Handle logout logic here
-      console.log('Logout pressed');
+      handleLogout();
     } else {
       router.push(route);
     }
@@ -50,16 +59,43 @@ export default function UserBooking() {
   useEffect(() => {
     const fetchBookings = async () => {
       try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.log('No current user found');
+          setError("Please log in to view bookings");
+          setLoading(false);
+          return;
+        }
+
+        console.log('Fetching all bookings for monitoring');
         const bookingsRef = collection(db, 'bookings');
-        const q = query(bookingsRef, orderBy('createdAt', 'desc'));
+        const q = query(bookingsRef);
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
+          console.log('Received snapshot with', snapshot.docs.length, 'bookings');
           const bookingsData = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            createdAt: doc.data().createdAt?.toDate() || new Date()
+            createdAt: doc.data().createdAt?.toDate() || new Date(),
+            updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+            // Ensure all required fields are present
+            eventTitle: doc.data().eventTitle || 'Untitled Event',
+            eventDate: doc.data().eventDate || 'No date specified',
+            eventType: doc.data().eventType || 'Not specified',
+            eventLocation: doc.data().eventLocation || 'No location specified',
+            eventImage: doc.data().eventImage || null,
+            fullName: doc.data().fullName || 'No name specified',
+            email: doc.data().email || 'No email specified',
+            phone: doc.data().phone || 'No phone specified',
+            status: doc.data().status || 'pending'
           }));
           
+          console.log('Processed bookings:', bookingsData);
+          
+          // Sort bookings by date (newest first) in memory
+          bookingsData.sort((a, b) => b.createdAt - a.createdAt);
+          
+          setBookings(bookingsData);
           if (bookingsData.length > 0) {
             setSelectedBooking(bookingsData[0]);
           }
@@ -95,8 +131,10 @@ export default function UserBooking() {
           onPress: async () => {
             try {
               const bookingRef = doc(db, 'bookings', bookingId);
-              await updateDoc(bookingRef, { status: 'confirmed' });
-              updateBookingStatus(bookingId, 'confirmed');
+              await updateDoc(bookingRef, { 
+                status: 'confirmed',
+                updatedAt: serverTimestamp()
+              });
               Alert.alert("Success", "Booking has been approved");
               if (selectedBooking && selectedBooking.id === bookingId) {
                 setSelectedBooking({...selectedBooking, status: 'confirmed'});
@@ -125,8 +163,10 @@ export default function UserBooking() {
           onPress: async () => {
             try {
               const bookingRef = doc(db, 'bookings', bookingId);
-              await updateDoc(bookingRef, { status: 'rejected' });
-              updateBookingStatus(bookingId, 'rejected');
+              await updateDoc(bookingRef, { 
+                status: 'rejected',
+                updatedAt: serverTimestamp()
+              });
               Alert.alert("Success", "Booking has been rejected");
               if (selectedBooking && selectedBooking.id === bookingId) {
                 setSelectedBooking({...selectedBooking, status: 'rejected'});
@@ -176,6 +216,11 @@ export default function UserBooking() {
       style={styles.bookingCard}
       onPress={() => setSelectedBooking(item)}
     >
+      <Image 
+        source={item.eventImage ? { uri: item.eventImage } : require('../../assets/convention.jpg')}
+        style={styles.bookingImage}
+        defaultSource={require('../../assets/convention.jpg')}
+      />
       <View style={styles.bookingHeader}>
         <View style={styles.bookingTitleContainer}>
           <Text style={styles.eventTitle} numberOfLines={1}>{item.eventTitle}</Text>
@@ -184,7 +229,7 @@ export default function UserBooking() {
             <Text style={styles.statusText}>{item.status.toUpperCase()}</Text>
           </View>
         </View>
-        <Text style={styles.bookingDate}>{item.date}</Text>
+        <Text style={styles.bookingDate}>{item.eventDate}</Text>
       </View>
       
       <View style={styles.bookingInfo}>
@@ -196,12 +241,16 @@ export default function UserBooking() {
           <Ionicons name="mail" size={16} color="#747d8c" />
           <Text style={styles.infoText} numberOfLines={1}>{item.email}</Text>
         </View>
+        <View style={styles.infoRow}>
+          <Ionicons name="call" size={16} color="#747d8c" />
+          <Text style={styles.infoText} numberOfLines={1}>{item.phone}</Text>
+        </View>
       </View>
 
       {selectedBooking?.id === item.id && (
         <View style={styles.expandedContent}>
           <View style={styles.detailsSection}>
-            <Text style={styles.sectionTitle}>Receipt Details</Text>
+            <Text style={styles.sectionTitle}>Event Information</Text>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Event:</Text>
               <Text style={styles.detailValue}>{item.eventTitle}</Text>
@@ -259,72 +308,6 @@ export default function UserBooking() {
     </TouchableOpacity>
   );
 
-  const renderBookingDetails = () => {
-    if (!selectedBooking) return null;
-
-    return (
-      <View style={styles.detailsContainer}>
-        <Image source={{ uri: selectedBooking.eventImage }} style={styles.detailsImage} />
-        
-        <View style={styles.detailsSection}>
-          <Text style={styles.sectionTitle}>Event Information</Text>
-          <Text style={styles.detailsText}>Event: {selectedBooking.eventTitle}</Text>
-          <Text style={styles.detailsText}>Type: {selectedBooking.eventType}</Text>
-          <Text style={styles.detailsText}>Date: {selectedBooking.eventDate}</Text>
-          <Text style={styles.detailsText}>Location: {selectedBooking.eventLocation}</Text>
-        </View>
-
-        <View style={styles.detailsSection}>
-          <Text style={styles.sectionTitle}>Customer Information</Text>
-          <Text style={styles.detailsText}>Name: {selectedBooking.fullName}</Text>
-          <Text style={styles.detailsText}>Email: {selectedBooking.email}</Text>
-          <Text style={styles.detailsText}>Phone: {selectedBooking.phone}</Text>
-        </View>
-
-        <View style={styles.detailsSection}>
-          <Text style={styles.sectionTitle}>Booking Status</Text>
-          <View style={[
-            styles.statusContainer,
-            { backgroundColor: getStatusColor(selectedBooking.status) }
-          ]}>
-            <Ionicons 
-              name={getStatusIcon(selectedBooking.status)} 
-              size={18} 
-              color="white" 
-              style={styles.statusIcon}
-            />
-            <Text style={styles.statusText}>{selectedBooking.status.toUpperCase()}</Text>
-          </View>
-        </View>
-
-        {selectedBooking.status === 'pending' && (
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity 
-              style={[styles.button, styles.cancelButton]} 
-              onPress={handleCancel}
-            >
-              <Text style={styles.buttonText}>Cancel</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.button, styles.approveButton]} 
-              onPress={() => handleApprove(selectedBooking.id)}
-            >
-              <Text style={styles.buttonText}>Approve</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.button, styles.rejectButton]} 
-              onPress={() => handleReject(selectedBooking.id)}
-            >
-              <Text style={styles.buttonText}>Reject</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
-  };
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -372,14 +355,12 @@ export default function UserBooking() {
         colors={['#2a9d8f', '#264653']}
         style={styles.headerGradient}
       >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setMenuVisible(true)}>
+       <View style={styles.header}>
+          <TouchableOpacity onPress={()=>setMenuVisible(true)}>
             <Ionicons name="menu" size={24} color="white" />
           </TouchableOpacity>
-          <Text style={styles.title}>User Bookings</Text>
-          <TouchableOpacity onPress={handleViewApprovedBookings}>
-            <Text style={styles.saveButton}>View Approved</Text>
-          </TouchableOpacity>
+          <Text style={styles.title}>User Booking</Text>
+          <View style={{width:24}}/>
         </View>
       </LinearGradient>
 
@@ -589,20 +570,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  detailsContainer: {
-    padding: 16,
-  },
-  detailsImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  detailsText: {
-    fontSize: 16,
-    marginBottom: 4,
-    color: '#333',
-  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -618,35 +585,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: 'bold',
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    marginBottom: 40,
-  },
-  button: {
-    flex: 1,
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginHorizontal: 5,
-  },
-  cancelButton: {
-    backgroundColor: '#f1f2f6',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: 'white',
   },
   modalOverlay: {
     flex: 1,
@@ -668,9 +606,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f1f2f6',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#2f3542',
+    marginBottom: 10,
   },
   menuList: {
     marginBottom: 20,
@@ -692,4 +630,11 @@ const styles = StyleSheet.create({
     marginLeft: 15,
     color: '#2f3542',
   },
+  bookingImage: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+
 });

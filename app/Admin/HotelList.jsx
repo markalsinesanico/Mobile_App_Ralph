@@ -15,7 +15,7 @@ export default function HotelList() {
   const [selectedHotel, setSelectedHotel] = useState(null);
 
   const menuOptions = [
-    { id: '1', title: 'Dashboard', icon: 'home', route: '/Dashboard' },
+    { id: '1', title: 'Dashboard', icon: 'home', route: '/AdminDashboard' },
     { id: '2', title: 'Logout', icon: 'log-out', route: '/logout' },
   ];
 
