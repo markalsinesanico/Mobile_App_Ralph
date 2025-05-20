@@ -3,29 +3,72 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIn
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useBookings } from '../context/BookingsContext';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../../firebaseconfig';
 
 export default function MyEvent() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { bookings } = useBookings();
+  const [bookings, setBookings] = useState([]);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    try {
-      if (params.bookingData) {
-        const bookingData = JSON.parse(params.bookingData);
-        setSelectedBooking(bookingData);
+    const fetchBookings = async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          setError("Please log in to view your bookings");
+          setLoading(false);
+          return;
+        }
+
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(
+          bookingsRef,
+          where('email', '==', currentUser.email)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const bookingsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date()
+          }));
+
+          // Sort bookings by date (newest first)
+          bookingsData.sort((a, b) => b.createdAt - a.createdAt);
+          
+          setBookings(bookingsData);
+          
+          // If we have a specific booking ID from params, select it
+          if (params.bookingId) {
+            const booking = bookingsData.find(b => b.id === params.bookingId);
+            if (booking) {
+              setSelectedBooking(booking);
+            }
+          } else if (bookingsData.length > 0) {
+            setSelectedBooking(bookingsData[0]);
+          }
+          
+          setLoading(false);
+        }, (error) => {
+          console.error('Error fetching bookings:', error);
+          setError("Failed to load bookings");
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error setting up bookings listener:', error);
+        setError("Failed to load bookings");
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error parsing booking data:', error);
-      setError("Failed to load booking data");
-    } finally {
-      setLoading(false);
-    }
-  }, [params]);
+    };
+
+    fetchBookings();
+  }, [params.bookingId]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -97,8 +140,9 @@ export default function MyEvent() {
         onPress={() => setSelectedBooking(booking)}
       >
         <Image 
-          source={{ uri: booking.eventImage }} 
+          source={booking.eventImage ? { uri: booking.eventImage } : require('../../assets/convention.jpg')} 
           style={styles.bookingImage}
+          defaultSource={require('../../assets/convention.jpg')}
         />
         <View style={styles.bookingInfo}>
           <Text style={styles.bookingTitle}>{booking.eventTitle}</Text>
@@ -142,8 +186,9 @@ export default function MyEvent() {
           <View style={styles.detailsContainer}>
             <ScrollView style={styles.detailsScroll}>
               <Image 
-                source={{ uri: selectedBooking.eventImage }} 
+                source={selectedBooking.eventImage ? { uri: selectedBooking.eventImage } : require('../../assets/convention.jpg')} 
                 style={styles.detailsImage}
+                defaultSource={require('../../assets/convention.jpg')}
               />
               
               <View style={styles.section}>
@@ -167,7 +212,9 @@ export default function MyEvent() {
                     Status: {selectedBooking.status}
                   </Text>
                 </View>
-                <Text style={styles.detailsText}>Booked on: {new Date(selectedBooking.createdAt).toLocaleDateString()}</Text>
+                <Text style={styles.detailsText}>
+                  Booked on: {selectedBooking.createdAt.toLocaleDateString()}
+                </Text>
               </View>
 
               <View style={styles.section}>

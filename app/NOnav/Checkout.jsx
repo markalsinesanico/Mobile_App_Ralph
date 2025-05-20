@@ -9,6 +9,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEvents } from '../context/EventsContext';
 import { useBookings } from "../context/BookingsContext";
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, updateDoc, doc, where } from 'firebase/firestore';
+import { db } from '../../firebaseconfig';
+import { useAuth } from '../context/AuthContext';
 
 export default function EventDetailsScreen() {
   const router = useRouter();
@@ -20,6 +23,7 @@ export default function EventDetailsScreen() {
   const [showAllEventTypes, setShowAllEventTypes] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [event, setEvent] = useState(null);
+  const [selectedBooking, setSelectedBooking] = useState(null);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -27,6 +31,7 @@ export default function EventDetailsScreen() {
     eventType: 'Conference',
     date: '',
   });
+  const { currentUser } = useAuth();
 
   const eventTypes = [
     'Conference', 'Workshop', 'Birthday', 'Wedding', 'Anniversary',
@@ -46,7 +51,7 @@ export default function EventDetailsScreen() {
           title: params.title,
           location: params.location,
           venue: params.venue,
-          image: params.image,
+          imageUrl: params.imageUrl,
           description: params.description
         });
       }
@@ -57,39 +62,79 @@ export default function EventDetailsScreen() {
         title: params.title,
         location: params.location,
         venue: params.venue,
-        image: params.image,
+        imageUrl: params.imageUrl,
         description: params.description
       });
     }
   }, [params, getEventById]);
 
-  const handleSubmit = () => {
-    const newBooking = {
-      id: Date.now().toString(),
-      eventId: event.id,
-      eventTitle: event.title,
-      eventDate: event.date,
-      eventLocation: event.location,
-      eventImage: event.image,
-      fullName: formData.fullName,
-      email: formData.email,
-      phone: formData.phoneNumber,
-      eventType: formData.eventType,
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    };
+  const handleSubmit = async () => {
+    if (!formData.fullName || !formData.phoneNumber || !formData.date) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
 
-    addBooking(newBooking);
-    console.log('Booking submitted:', newBooking);
-    
-    // Close form and show receipt
-    setIsFormVisible(false);
-    setIsReceiptVisible(true);
+    if (!currentUser) {
+      Alert.alert('Error', 'Please log in to make a booking');
+      return;
+    }
+
+    try {
+      const newBooking = {
+        eventId: event.id,
+        eventTitle: event.title,
+        eventDate: formData.date,
+        eventLocation: event.location,
+        eventImage: event.imageUrl,
+        fullName: formData.fullName,
+        email: currentUser.email,
+        phone: formData.phoneNumber,
+        eventType: formData.eventType,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      };
+
+      // Add to Firestore
+      const docRef = await addDoc(collection(db, 'bookings'), newBooking);
+      
+      // Create the booking object with the Firestore ID
+      const bookingWithId = { ...newBooking, id: docRef.id };
+      
+      // Add to local context
+      addBooking(bookingWithId);
+      
+      // Set the selected booking
+      setSelectedBooking(bookingWithId);
+
+      // Close form and show receipt
+      setIsFormVisible(false);
+      setIsReceiptVisible(true);
+
+      // Reset form
+      setFormData({
+        fullName: '',
+        email: '',
+        phoneNumber: '',
+        eventType: 'Conference',
+        date: '',
+      });
+
+    } catch (error) {
+      console.error('Error submitting booking:', error);
+      Alert.alert('Error', 'Failed to submit booking. Please try again.');
+    }
   };
 
   const handleViewBooking = () => {
+    if (!selectedBooking) {
+      Alert.alert('Error', 'No booking selected');
+      return;
+    }
     setIsReceiptVisible(false);
-    router.push('/NOnav/MyEvent');
+    router.push({
+      pathname: '/NOnav/MyEvent',
+      params: { bookingId: selectedBooking.id }
+    });
   };
 
   const handleDateChange = (event, selectedDate) => {
@@ -101,6 +146,14 @@ export default function EventDetailsScreen() {
         year: 'numeric'
       });
       setFormData({ ...formData, date: formattedDate });
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'confirmed': return '#4CAF50';
+      case 'rejected': return '#F44336';
+      default: return '#FFC107';
     }
   };
 
@@ -128,24 +181,16 @@ export default function EventDetailsScreen() {
 
       <ScrollView style={styles.scrollView}>
         <Image 
-          source={typeof event.image === 'string' ? { uri: event.image } : event.image} 
-          style={styles.eventImage} 
+          source={event.imageUrl ? { uri: event.imageUrl } : require('../../assets/convention.jpg')}
+          style={styles.eventImage}
+          defaultSource={require('../../assets/convention.jpg')}
         />
 
-        <View style={styles.section}>
-          <Text style={styles.title}>{event.title}</Text>
-          <Text style={styles.location}>
-            <FontAwesome name="map-marker" size={16} color="gray" /> {event.location}
-          </Text>
-        </View>
 
         <View style={styles.section}>
           <Text style={styles.subTitle}>Location</Text>
           <View style={styles.mapCard}>
             <Text>{event.location}</Text>
-            <TouchableOpacity style={styles.viewMapButton}>
-              <Text style={styles.viewMapText}>View on Map</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -210,18 +255,6 @@ export default function EventDetailsScreen() {
                     value={formData.fullName}
                     onChangeText={(text) => setFormData({ ...formData, fullName: text })}
                     autoCapitalize="words"
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Email Address</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter your email address"
-                    keyboardType="email-address"
-                    value={formData.email}
-                    onChangeText={(text) => setFormData({ ...formData, email: text })}
-                    autoCapitalize="none"
                   />
                 </View>
 
@@ -352,7 +385,6 @@ export default function EventDetailsScreen() {
 
               <View style={styles.receiptSection}>
                 <Text style={styles.receiptSectionTitle}>Booking Details</Text>
-                <Text style={styles.receiptText}>Booking ID: {Date.now().toString()}</Text>
                 <Text style={styles.receiptText}>Status: Pending</Text>
                 <Text style={styles.receiptText}>Booked on: {new Date().toLocaleDateString()}</Text>
               </View>
@@ -507,5 +539,10 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  detailsText: {
+    fontSize: 16,
+    marginBottom: 5,
+    color: '#333',
   },
 });

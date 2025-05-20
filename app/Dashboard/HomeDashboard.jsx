@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { 
+import {
   View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Modal, FlatList,
   TextInput, Image, ScrollView, KeyboardAvoidingView, Platform, Alert
 } from 'react-native';
@@ -7,12 +7,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useEvents } from '../context/EventsContext';
 
-// Firebase imports (configured in firebaseconfig.js)
-import { auth, db, storage } from '../../firebaseconfig';
+// Firebase imports
+import { auth, db } from '../../firebaseconfig';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { signOut } from 'firebase/auth';
+
+// Cloudinary config
+const CLOUD_NAME = 'dpylptqd6';
+const UPLOAD_PRESET = 'unsigned_events';
 
 const Dashboard = () => {
   const [menuVisible, setMenuVisible] = useState(false);
@@ -21,7 +25,9 @@ const Dashboard = () => {
   const [eventTitle, setEventTitle] = useState('');
   const [eventLocation, setEventLocation] = useState('');
   const [eventDescription, setEventDescription] = useState('');
+  const [uploading, setUploading] = useState(false);
   const router = useRouter();
+  const { addEvent } = useEvents();
 
   const menuOptions = [
     { id: '1', title: 'Events', icon: 'calendar', route: '/Dashboard/Events' },
@@ -49,72 +55,84 @@ const Dashboard = () => {
     }
   };
 
+  // 1. Pick image from library
   const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      return Alert.alert('Permission required', 'Camera roll permissions are needed to select an image.');
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
       quality: 1,
     });
-
     if (!result.canceled) {
-      setEventImage(result.assets[0].uri);
+      const uri = result.assets ? result.assets[0].uri : result.uri;
+      setEventImage(uri);
     }
   };
 
-  // Upload local image URI to Firebase Storage
-  const uploadImageAsync = async (uri) => {
-    if (!uri) {
-      throw new Error('No image selected');
-    }
-  
+  // 2. Upload image to Cloudinary
+  const uploadImageToCloudinary = async (uri) => {
+    if (!uri) throw new Error('No image selected');
+    setUploading(true);
     try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const fileName = `events/${Date.now()}`;
-      const storageRef = ref(storage, fileName);
-      await uploadBytes(storageRef, blob);
-      return await getDownloadURL(storageRef);
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        type: 'image/jpeg',
+        name: `upload_${Date.now()}.jpg`,
+      });
+      formData.append('upload_preset', UPLOAD_PRESET);
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+        { method: 'POST', body: formData }
+      );
+      const data = await response.json();
+      setUploading(false);
+      return data.secure_url;
     } catch (error) {
-      console.error('Error uploading image:', error);
+      console.error('Cloudinary upload error:', error);
+      setUploading(false);
       throw new Error('Failed to upload image');
     }
   };
-  
 
-  // Save form data to Firestore
+  // 3. Save form data to Firestore
   const handleAddEvent = async () => {
-    // Validate inputs
     if (!eventTitle.trim() || !eventLocation.trim() || !eventDescription.trim() || !eventImage) {
-      Alert.alert('Error', 'All fields are required, including an image.');
-      return;
+      return Alert.alert('Error', 'All fields are required, including an image.');
     }
 
     try {
-      // 1) upload image and get URL
-      const imageUrl = await uploadImageAsync(eventImage);
+      // upload to Cloudinary
+      const imageUrl = await uploadImageToCloudinary(eventImage);
 
-      // 2) write document to 'events' collection
-      await addDoc(collection(db, 'events'), {
+      const eventData = {
         title: eventTitle,
         location: eventLocation,
         description: eventDescription,
         imageUrl,
+        categories: 'Event',
+        venue: eventLocation,
         createdAt: Timestamp.now(),
-      });
+        userId: auth.currentUser?.uid || ''
+      };
 
-      Alert.alert('Success', 'Event added to Firebase!');
+      // add to Firestore
+      await addDoc(collection(db, 'events'), eventData);
 
-      // reset form
+      Alert.alert('Success', 'Event added successfully!');
       setEventTitle('');
       setEventLocation('');
       setEventDescription('');
       setEventImage(null);
       setAddFormVisible(false);
-
     } catch (error) {
-      console.error('Firebase save error:', error);
-      Alert.alert('Error', 'Could not save event. Please try again.');
+      console.error('Error adding event:', error);
+      Alert.alert('Error', error.message || 'Could not save event.');
     }
   };
 
@@ -142,9 +160,7 @@ const Dashboard = () => {
       </LinearGradient>
 
       {/* CONTENT */}
-      <ScrollView style={styles.content}>
-        {/* ...cards & activity... */}
-      </ScrollView>
+      <ScrollView style={styles.content}>{/* ...cards & activity... */}</ScrollView>
 
       {/* FAB */}
       <TouchableOpacity style={styles.fab} onPress={() => setAddFormVisible(true)}>
@@ -170,7 +186,10 @@ const Dashboard = () => {
 
       {/* ADD EVENT FORM */}
       <Modal transparent visible={addFormVisible} animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <View style={styles.formModalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add New Event</Text>
@@ -180,15 +199,14 @@ const Dashboard = () => {
             </View>
             <ScrollView style={styles.formScroll}>
               <TouchableOpacity style={styles.imagePickerContainer} onPress={pickImage}>
-                {eventImage
-                  ? <Image source={{ uri: eventImage }} style={styles.eventImage} />
-                  : (
-                    <View style={styles.imagePlaceholder}>
-                      <Ionicons name="image" size={40} color="#b2bec3" />
-                      <Text style={styles.imagePlaceholderText}>Add Event Image</Text>
-                    </View>
-                  )
-                }
+                {eventImage ? (
+                  <Image source={{ uri: eventImage }} style={styles.eventImage} />
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <Ionicons name="image" size={40} color="#b2bec3" />
+                    <Text style={styles.imagePlaceholderText}>Add Event Image</Text>
+                  </View>
+                )}
               </TouchableOpacity>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Event Title</Text>
@@ -221,8 +239,14 @@ const Dashboard = () => {
                   multiline numberOfLines={4} textAlignVertical="top"
                 />
               </View>
-              <TouchableOpacity style={styles.submitButton} onPress={handleAddEvent}>
-                <Text style={styles.submitButtonText}>Add Event</Text>
+              <TouchableOpacity
+                style={[styles.submitButton, uploading && { opacity: 0.6 }]}
+                onPress={handleAddEvent}
+                disabled={uploading}
+              >
+                <Text style={styles.submitButtonText}>
+                  {uploading ? 'Uploading...' : 'Add Event'}
+                </Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -234,266 +258,266 @@ const Dashboard = () => {
 
 export default Dashboard;
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: '#f1f2f6',
-    },
-    headerGradient: {
-      paddingTop: 10,
-      borderBottomLeftRadius: 20,
-      borderBottomRightRadius: 20,
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: 16,
-      backgroundColor: 'transparent',
-    },
-    title: {
-      fontSize: 24,
-      fontWeight: '600',
-      color: 'white',
-    },
-    content: {
-      flex: 1,
-      padding: 16,
-    },
-    welcomeSection: {
-      marginBottom: 24,
-    },
-    welcomeText: {
-      fontSize: 28,
-      fontWeight: 'bold',
-      color: '#2f3542',
-      marginBottom: 8,
-    },
-    dateText: {
-      fontSize: 16,
-      color: '#747d8c',
-    },
-    cards: {
-      flexDirection: 'row',
-      gap: 16,
-      marginBottom: 24,
-    },
-    card: {
-      flex: 1,
-      backgroundColor: '#ffffff',
-      borderRadius: 16,
-      padding: 16,
-      elevation: 2,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-    },
-    cardIconContainer: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      backgroundColor: '#f1f2f6',
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginBottom: 12,
-    },
-    cardContent: {
-      flex: 1,
-    },
-    cardTitle: {
-      fontSize: 14,
-      color: '#747d8c',
-      marginBottom: 4,
-    },
-    cardValue: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: '#2f3542',
-      marginBottom: 4,
-    },
-    cardChange: {
-      fontSize: 12,
-      color: '#2a9d8f',
-    },
-    section: {
-      marginBottom: 24,
-    },
-    sectionTitle: {
-      fontSize: 20,
-      fontWeight: '600',
-      color: '#2f3542',
-      marginBottom: 16,
-    },
-    activityList: {
-      gap: 12,
-    },
-    activityItem: {
-      flexDirection: 'row',
-      backgroundColor: '#ffffff',
-      borderRadius: 12,
-      padding: 16,
-      elevation: 1,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-    },
-    activityIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginRight: 12,
-    },
-    activityContent: {
-      flex: 1,
-    },
-    activityTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#2f3542',
-      marginBottom: 4,
-    },
-    activityDesc: {
-      fontSize: 14,
-      color: '#747d8c',
-      marginBottom: 4,
-    },
-    activityTime: {
-      fontSize: 12,
-      color: '#a4b0be',
-    },
-    fab: {
-      position: 'absolute',
-      right: 20,
-      bottom: 20,
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      elevation: 5,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 3,
-    },
-    fabGradient: {
-      width: '100%',
-      height: '100%',
-      borderRadius: 30,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    },
-    sideMenuContent: {
-      backgroundColor: 'white',
-      width: '80%',
-      height: '100%',
-      padding: 20,
-    },
-    formModalContent: {
-      backgroundColor: 'white',
-      marginTop: 50,
-      marginHorizontal: 20,
-      borderRadius: 20,
-      padding: 20,
-      maxHeight: '80%',
-    },
-    modalHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 20,
-      paddingBottom: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: '#f1f2f6',
-    },
-    modalTitle: {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: '#2f3542',
-    },
-    menuList: {
-      marginBottom: 20,
-    },
-    menuItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingVertical: 15,
-      borderBottomWidth: 1,
-      borderBottomColor: '#f1f2f6',
-    },
-    menuItemContent: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    menuItemText: {
-      fontSize: 16,
-      marginLeft: 15,
-      color: '#2f3542',
-    },
-    formScroll: {
-      maxHeight: '100%',
-    },
-    imagePickerContainer: {
-      marginBottom: 20,
-      borderRadius: 10,
-      overflow: 'hidden',
-    },
-    eventImage: {
-      width: '100%',
-      height: 200,
-      resizeMode: 'cover',
-    },
-    imagePlaceholder: {
-      width: '100%',
-      height: 200,
-      backgroundColor: '#f1f2f6',
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderRadius: 10,
-    },
-    imagePlaceholderText: {
-      marginTop: 10,
-      color: '#b2bec3',
-      fontSize: 16,
-    },
-    inputContainer: {
-      marginBottom: 20,
-    },
-    inputLabel: {
-      fontSize: 16,
-      fontWeight: '500',
-      marginBottom: 8,
-      color: '#2f3542',
-    },
-    input: {
-      backgroundColor: '#f1f2f6',
-      borderRadius: 10,
-      padding: 15,
-      fontSize: 16,
-      color: '#2f3542',
-    },
-    textArea: {
-      height: 120,
-    },
-    submitButton: {
-      backgroundColor: '#1e90ff',
-      borderRadius: 10,
-      padding: 15,
-      alignItems: 'center',
-      marginTop: 10,
-      marginBottom: 30,
-    },
-    submitButtonText: {
-      color: 'white',
-      fontSize: 16,
-      fontWeight: 'bold',
-    },
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f1f2f6',
+  },
+  headerGradient: {
+    paddingTop: 10,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    backgroundColor: 'transparent',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: 'white',
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  welcomeSection: {
+    marginBottom: 24,
+  },
+  welcomeText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#2f3542',
+    marginBottom: 8,
+  },
+  dateText: {
+    fontSize: 16,
+    color: '#747d8c',
+  },
+  cards: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 24,
+  },
+  card: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  cardIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f1f2f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cardContent: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 14,
+    color: '#747d8c',
+    marginBottom: 4,
+  },
+  cardValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2f3542',
+    marginBottom: 4,
+  },
+  cardChange: {
+    fontSize: 12,
+    color: '#2a9d8f',
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#2f3542',
+    marginBottom: 16,
+  },
+  activityList: {
+    gap: 12,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  activityIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  activityContent: {
+    flex: 1,
+  },
+  activityTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2f3542',
+    marginBottom: 4,
+  },
+  activityDesc: {
+    fontSize: 14,
+    color: '#747d8c',
+    marginBottom: 4,
+  },
+  activityTime: {
+    fontSize: 12,
+    color: '#a4b0be',
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+  fabGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  sideMenuContent: {
+    backgroundColor: 'white',
+    width: '80%',
+    height: '100%',
+    padding: 20,
+  },
+  formModalContent: {
+    backgroundColor: 'white',
+    marginTop: 50,
+    marginHorizontal: 20,
+    borderRadius: 20,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f2f6',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2f3542',
+  },
+  menuList: {
+    marginBottom: 20,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f2f6',
+  },
+  menuItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  menuItemText: {
+    fontSize: 16,
+    marginLeft: 15,
+    color: '#2f3542',
+  },
+  formScroll: {
+    maxHeight: '100%',
+  },
+  imagePickerContainer: {
+    marginBottom: 20,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  eventImage: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+  },
+  imagePlaceholder: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#f1f2f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  imagePlaceholderText: {
+    marginTop: 10,
+    color: '#b2bec3',
+    fontSize: 16,
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+    color: '#2f3542',
+  },
+  input: {
+    backgroundColor: '#f1f2f6',
+    borderRadius: 10,
+    padding: 15,
+    fontSize: 16,
+    color: '#2f3542',
+  },
+  textArea: {
+    height: 120,
+  },
+  submitButton: {
+    backgroundColor: '#1e90ff',
+    borderRadius: 10,
+    padding: 15,
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 30,
+  },
+  submitButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });
   

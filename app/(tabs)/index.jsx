@@ -52,8 +52,9 @@ export default function Categories() {
             activeOpacity={0.9}
           >
             <Image 
-              source={typeof event.image === 'string' ? { uri: event.image } : event.image} 
-              style={styles.eventImage} 
+              source={event.imageUrl ? { uri: event.imageUrl } : require('../../assets/convention.jpg')} 
+              style={styles.eventImage}
+              defaultSource={require('../../assets/convention.jpg')}
             />
             <View style={styles.cardContent}>
               <Text style={styles.eventTitle}>{event.title}</Text>

@@ -19,7 +19,7 @@ export default function SavedEvents() {
         title: event.title,
         location: event.location,
         venue: event.venue,
-        image: event.image,
+        imageUrl: event.imageUrl,
         description: event.description || "No description available",
         categories: event.categories || "General"
       }
@@ -106,12 +106,15 @@ export default function SavedEvents() {
                 ]}
               >
                 <TouchableOpacity onPress={() => handleEventPress(event)}>
-                  <Image source={event.image} style={styles.eventImage} />
+                  <Image 
+                    source={event.imageUrl ? { uri: event.imageUrl } : require('../../assets/convention.jpg')} 
+                    style={styles.eventImage}
+                    defaultSource={require('../../assets/convention.jpg')}
+                  />
                   <View style={styles.eventDetails}>
                     <Text style={styles.eventTitle}>{event.title}</Text>
                     <Text style={styles.venue}><Text style={{ fontWeight: 'bold' }}>{event.venue}</Text></Text>
                     <Text style={styles.location}><FontAwesome name="map-marker" size={14} color="gray" /> {event.location}</Text>
-                    <Text style={styles.rating}>⭐⭐⭐⭐</Text>
                   </View>
                 </TouchableOpacity>
                 <TouchableOpacity 

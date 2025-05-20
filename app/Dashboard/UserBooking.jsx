@@ -4,49 +4,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useBookings } from '../context/BookingsContext';
-
-// This would typically come from a database or API
-const MOCK_BOOKINGS = [
-  {
-    id: '1',
-    eventId: '101',
-    eventTitle: 'Summer Music Festival',
-    eventImage: 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-    customerName: 'John Doe',
-    customerEmail: 'john@example.com',
-    customerPhone: '123-456-7890',
-    eventType: 'Concert',
-    date: '07/15/2023',
-    status: 'pending',
-    createdAt: '2023-06-01T10:00:00Z'
-  },
-  {
-    id: '2',
-    eventId: '102',
-    eventTitle: 'Tech Conference 2023',
-    eventImage: 'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-    customerName: 'Jane Smith',
-    customerEmail: 'jane@example.com',
-    customerPhone: '098-765-4321',
-    eventType: 'Conference',
-    date: '08/20/2023',
-    status: 'confirmed',
-    createdAt: '2023-06-05T14:30:00Z'
-  },
-  {
-    id: '3',
-    eventId: '103',
-    eventTitle: 'Wedding Ceremony',
-    eventImage: 'https://images.unsplash.com/photo-1519741497674-611481863552?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-    customerName: 'Robert Johnson',
-    customerEmail: 'robert@example.com',
-    customerPhone: '555-123-4567',
-    eventType: 'Wedding',
-    date: '09/10/2023',
-    status: 'rejected',
-    createdAt: '2023-06-10T09:15:00Z'
-  }
-];
+import { collection, query, orderBy, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import { db } from '../../firebaseconfig';
 
 export default function UserBooking() {
   const router = useRouter();
@@ -87,26 +46,42 @@ export default function UserBooking() {
     </TouchableOpacity>
   );
 
+  // Fetch bookings from Firebase
   useEffect(() => {
-    try {
-      if (bookings && bookings.length > 0) {
-        // Find pending bookings
-        const pendingBookings = bookings.filter(booking => booking.status === 'pending');
-        if (pendingBookings.length > 0) {
-          setSelectedBooking(pendingBookings[0]);
-        } else if (bookings.length > 0) {
-          setSelectedBooking(bookings[0]);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading bookings:', error);
-      setError("Failed to load bookings");
-    } finally {
-      setLoading(false);
-    }
-  }, [bookings]);
+    const fetchBookings = async () => {
+      try {
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(bookingsRef, orderBy('createdAt', 'desc'));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const bookingsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date()
+          }));
+          
+          if (bookingsData.length > 0) {
+            setSelectedBooking(bookingsData[0]);
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error('Error fetching bookings:', error);
+          setError('Failed to load bookings');
+          setLoading(false);
+        });
 
-  const handleApprove = (bookingId) => {
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error setting up bookings listener:', error);
+        setError('Failed to load bookings');
+        setLoading(false);
+      }
+    };
+
+    fetchBookings();
+  }, []);
+
+  const handleApprove = async (bookingId) => {
     Alert.alert(
       "Approve Booking",
       "Are you sure you want to approve this booking?",
@@ -117,12 +92,18 @@ export default function UserBooking() {
         },
         { 
           text: "Approve", 
-          onPress: () => {
-            updateBookingStatus(bookingId, 'confirmed');
-            Alert.alert("Success", "Booking has been approved");
-            // Update the selected booking to reflect the change
-            if (selectedBooking && selectedBooking.id === bookingId) {
-              setSelectedBooking({...selectedBooking, status: 'confirmed'});
+          onPress: async () => {
+            try {
+              const bookingRef = doc(db, 'bookings', bookingId);
+              await updateDoc(bookingRef, { status: 'confirmed' });
+              updateBookingStatus(bookingId, 'confirmed');
+              Alert.alert("Success", "Booking has been approved");
+              if (selectedBooking && selectedBooking.id === bookingId) {
+                setSelectedBooking({...selectedBooking, status: 'confirmed'});
+              }
+            } catch (error) {
+              console.error('Error approving booking:', error);
+              Alert.alert("Error", "Failed to approve booking");
             }
           }
         }
@@ -130,7 +111,7 @@ export default function UserBooking() {
     );
   };
 
-  const handleReject = (bookingId) => {
+  const handleReject = async (bookingId) => {
     Alert.alert(
       "Reject Booking",
       "Are you sure you want to reject this booking?",
@@ -141,12 +122,18 @@ export default function UserBooking() {
         },
         { 
           text: "Reject", 
-          onPress: () => {
-            updateBookingStatus(bookingId, 'rejected');
-            Alert.alert("Success", "Booking has been rejected");
-            // Update the selected booking to reflect the change
-            if (selectedBooking && selectedBooking.id === bookingId) {
-              setSelectedBooking({...selectedBooking, status: 'rejected'});
+          onPress: async () => {
+            try {
+              const bookingRef = doc(db, 'bookings', bookingId);
+              await updateDoc(bookingRef, { status: 'rejected' });
+              updateBookingStatus(bookingId, 'rejected');
+              Alert.alert("Success", "Booking has been rejected");
+              if (selectedBooking && selectedBooking.id === bookingId) {
+                setSelectedBooking({...selectedBooking, status: 'rejected'});
+              }
+            } catch (error) {
+              console.error('Error rejecting booking:', error);
+              Alert.alert("Error", "Failed to reject booking");
             }
           }
         }

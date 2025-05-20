@@ -1,123 +1,288 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, FlatList, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  Image, Modal, FlatList, Alert, TextInput, Platform
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { useEvents } from '../context/EventsContext';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import {
+  collection,
+  getDocs,
+  deleteDoc,
+  doc,
+  updateDoc
+} from 'firebase/firestore';
+import { db, auth } from '../../firebaseconfig';
+import { signOut } from 'firebase/auth';
+
+// Cloudinary config
+const CLOUD_NAME = 'dpylptqd6';
+const UPLOAD_PRESET = 'unsigned_events';
 
 export default function Events() {
   const router = useRouter();
-  const { events, deleteEvent } = useEvents();
+  const [eventsData, setEventsData] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // local form state for editing
+  const [title, setTitle] = useState('');
+  const [location, setLocation] = useState('');
+  const [description, setDescription] = useState('');
+  const [localImageUri, setLocalImageUri] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  // fetch events
+  const fetchEvents = async () => {
+    try {
+      const colRef = collection(db, 'events');
+      const snap = await getDocs(colRef);
+      setEventsData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Could not load events.');
+    }
+  };
+  useEffect(() => { fetchEvents(); }, []);
+
+  // open modal in view mode
+  const handleEventPress = ev => {
+    setSelectedEvent(ev);
+    setIsEditing(false);
+  };
+
+  // start editing: pre-fill form & image
+  const openEdit = () => {
+    setTitle(selectedEvent.title);
+    setLocation(selectedEvent.location);
+    setDescription(selectedEvent.description);
+    setLocalImageUri(selectedEvent.imageUrl);
+    setIsEditing(true);
+  };
+
+  // pick a new image
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      return Alert.alert('Permission required', 'Need permission to select image.');
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4,3],
+      quality: 1,
+    });
+    if (!res.canceled) {
+      setLocalImageUri(res.assets[0].uri);
+    }
+  };
+
+  // upload to Cloudinary
+  const uploadImageToCloudinary = async (uri) => {
+    if (!uri) return null;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', {
+      uri,
+      type: 'image/jpeg',
+      name: `upload_${Date.now()}.jpg`,
+    });
+    formData.append('upload_preset', UPLOAD_PRESET);
+
+    try {
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+        { method: 'POST', body: formData }
+      );
+      const json = await res.json();
+      setUploading(false);
+      return json.secure_url;
+    } catch (err) {
+      console.error('Cloudinary upload error:', err);
+      setUploading(false);
+      throw new Error('Failed to upload image');
+    }
+  };
+
+  // save changes to Firestore
+  const handleSaveEdit = async () => {
+    if (!title.trim() || !location.trim() || !description.trim()) {
+      return Alert.alert('Error', 'All fields are required.');
+    }
+    try {
+      let imageUrl = selectedEvent.imageUrl;
+      if (localImageUri && localImageUri !== selectedEvent.imageUrl) {
+        imageUrl = await uploadImageToCloudinary(localImageUri);
+      }
+      const docRef = doc(db, 'events', selectedEvent.id);
+      await updateDoc(docRef, { title, location, description, imageUrl });
+      Alert.alert('Saved', 'Event updated.');
+      setIsEditing(false);
+      setSelectedEvent(null);
+      fetchEvents();
+    } catch (e) {
+      console.error('Error updating event:', e);
+      Alert.alert('Error', 'Could not update event.');
+    }
+  };
+
+  // delete event
+  const handleDelete = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'events', id));
+      Alert.alert('Deleted', 'Event removed.');
+      setSelectedEvent(null);
+      fetchEvents();
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Could not delete event.');
+    }
+  };
 
   const menuOptions = [
     { id: '1', title: 'Home', icon: 'home', route: '/Dashboard/HomeDashboard' },
     { id: '2', title: 'Events', icon: 'calendar', route: '/Dashboard/Events' },
     { id: '3', title: 'User Booking', icon: 'book', route: '/Dashboard/UserBooking' },
     { id: '4', title: 'Approve Booking', icon: 'checkmark-circle', route: '/Dashboard/Approve' },
-    { id: '5', title: 'Settings', icon: 'settings', route: '/Dashboard/Settings' },
+    { id: '5', title: 'Logout', icon: 'log-out', route: '/logout' },
   ];
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.replace('/authen/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
+    }
+  };
 
   const handleMenuOption = (route) => {
     setMenuVisible(false);
     if (route === '/logout') {
-      // Handle logout logic here
-      console.log('Logout pressed');
+      handleLogout();
     } else {
       router.push(route);
     }
   };
-
-  const handleEventPress = (event) => {
-    setSelectedEvent(event);
-  };
-
-  const handleDeleteEvent = (eventId) => {
-    deleteEvent(eventId);
-    setSelectedEvent(null);
-  };
-
-  const handleEditEvent = (event) => {
-    // Navigate to the EditEvent screen with the event ID
-    router.push(`/Dashboard/EditEvent?eventId=${event.id}`);
-  };
-
-  const renderMenuItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.menuItem}
-      onPress={() => handleMenuOption(item.route)}
-    >
-      <View style={styles.menuItemContent}>
-        <Ionicons name={item.icon} size={24} color="#2f3542" />
-        <Text style={styles.menuItemText}>{item.title}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color="#b2bec3" />
-    </TouchableOpacity>
-  );
+  
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#2a9d8f', '#264653']}
-        style={styles.headerGradient}
-      >
+      {/* HEADER */}
+      <LinearGradient colors={['#2a9d8f','#264653']} style={styles.headerGradient}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setMenuVisible(true)}>
+          <TouchableOpacity onPress={()=>setMenuVisible(true)}>
             <Ionicons name="menu" size={24} color="white" />
           </TouchableOpacity>
           <Text style={styles.title}>My Events</Text>
-          <View style={{ width: 24 }} />
+          <View style={{width:24}}/>
         </View>
       </LinearGradient>
 
+      {/* LIST */}
       <ScrollView style={styles.eventsList}>
-        {events.map((event) => (
+        {eventsData.map(ev=>(
           <TouchableOpacity
-            key={event.id}
+            key={ev.id}
             style={styles.eventCard}
-            onPress={() => handleEventPress(event)}
+            onPress={()=>handleEventPress(ev)}
           >
-            <Image 
-              source={{ uri: event.image }} 
-              style={styles.eventImage}
-              onError={(e) => console.log('Image loading error:', e.nativeEvent.error)}
-            />
+            <Image source={{uri:ev.imageUrl}} style={styles.eventImage}/>
             <View style={styles.eventInfo}>
-              <Text style={styles.eventTitle}>{event.title}</Text>
-              <Text style={styles.eventDate}>{event.date || 'Date not set'}</Text>
-              <Text style={styles.eventLocation}>{event.location}</Text>
+              <Text style={styles.eventTitle}>{ev.title}</Text>
+              <Text style={styles.eventLocation}>{ev.location}</Text>
             </View>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
+      {/* MODAL */}
       {selectedEvent && (
         <View style={styles.modal}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{selectedEvent.title}</Text>
-            <Text style={styles.modalDate}>{selectedEvent.date || 'Date not set'}</Text>
-            <Text style={styles.modalLocation}>{selectedEvent.location}</Text>
-            <Text style={styles.modalDescription}>{selectedEvent.description}</Text>
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.editButton]}
-                onPress={() => handleEditEvent(selectedEvent)}
-              >
-                <Text style={styles.buttonText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.deleteButton]}
-                onPress={() => handleDeleteEvent(selectedEvent.id)}
-              >
-                <Text style={styles.buttonText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-            
+            {isEditing ? (
+              <>
+                <TouchableOpacity style={styles.imagePickerContainer} onPress={pickImage}>
+                  {localImageUri
+                    ? <Image source={{uri:localImageUri}} style={styles.eventImage}/>
+                    : <View style={styles.imagePlaceholder}>
+                        <Ionicons name="image" size={40} color="#b2bec3"/>
+                        <Text style={styles.imagePlaceholderText}>Choose Image</Text>
+                      </View>
+                  }
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.input}
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder="Event Title"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={location}
+                  onChangeText={setLocation}
+                  placeholder="Location"
+                />
+                <TextInput
+                  style={[styles.input,styles.textArea]}
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder="Description"
+                  multiline
+                />
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton,styles.editButton]}
+                    onPress={handleSaveEdit}
+                    disabled={uploading}
+                  >
+                    <Text style={styles.buttonText}>
+                      {uploading ? 'Saving...' : 'Save Changes'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton,styles.deleteButton]}
+                    onPress={()=>handleDelete(selectedEvent.id)}
+                  >
+                    <Text style={styles.buttonText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Image
+                  source={{uri:selectedEvent.imageUrl}}
+                  style={[styles.eventImage,{alignSelf:'center',marginBottom:10}]}
+                />
+                <Text style={styles.modalTitle}>{selectedEvent.title}</Text>
+                <Text style={styles.modalLocation}>{selectedEvent.location}</Text>
+                <Text style={styles.modalDescription}>{selectedEvent.description}</Text>
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton,styles.editButton]}
+                    onPress={openEdit}
+                  >
+                    <Text style={styles.buttonText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton,styles.deleteButton]}
+                    onPress={()=>handleDelete(selectedEvent.id)}
+                  >
+                    <Text style={styles.buttonText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
             <TouchableOpacity
               style={styles.closeButton}
-              onPress={() => setSelectedEvent(null)}
+              onPress={()=>{
+                setIsEditing(false);
+                setSelectedEvent(null);
+              }}
             >
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
@@ -125,25 +290,36 @@ export default function Events() {
         </View>
       )}
 
-      {/* Side Menu Modal */}
+      {/* SIDE MENU */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent
         visible={menuVisible}
-        onRequestClose={() => setMenuVisible(false)}
+        onRequestClose={()=>setMenuVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.sideMenuContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Menu</Text>
-              <TouchableOpacity onPress={() => setMenuVisible(false)}>
+              <TouchableOpacity onPress={()=>setMenuVisible(false)}>
                 <Ionicons name="close" size={24} color="#2f3542" />
               </TouchableOpacity>
             </View>
             <FlatList
               data={menuOptions}
-              renderItem={renderMenuItem}
-              keyExtractor={item => item.id}
+              renderItem={({item})=>(
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={()=>handleMenuOption(item.route)}
+                >
+                  <View style={styles.menuItemContent}>
+                    <Ionicons name={item.icon} size={24} color="#2f3542"/>
+                    <Text style={styles.menuItemText}>{item.title}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#b2bec3"/>
+                </TouchableOpacity>
+              )}
+              keyExtractor={item=>item.id}
               style={styles.menuList}
             />
           </View>
@@ -322,5 +498,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 15,
     color: '#2f3542',
+  },
+  input: {
+    backgroundColor: '#f1f2f6',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+  },
+  textArea: { height: 80, textAlignVertical: 'top' },
+  imagePickerContainer: {
+    marginBottom: 20,
+    borderRadius: 10,
+    overflow: 'hidden',
+    height: 200,
+  },
+  imagePlaceholder: {
+    flex: 1,
+    backgroundColor: '#f1f2f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePlaceholderText: {
+    marginTop: 10,
+    color: '#b2bec3',
   },
 });
