@@ -5,6 +5,8 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebaseconfig';
 
 const menuItems = [
   { id: '1', title: 'My Events', icon: 'calendar' },
@@ -21,6 +23,7 @@ export default function ProfileScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [profileImage, setProfileImage] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [savedEvents, setSavedEvents] = useState([
     {
       id: 1,
@@ -38,13 +41,26 @@ export default function ProfileScreen() {
     },
   ]);
 
-  // Update local state when currentUser changes
+  // Fetch user data from Firestore
   useEffect(() => {
-    if (currentUser) {
-      setName(currentUser.fullName || 'John Doe');
-      setEmail(currentUser.email || 'john.doe@example.com');
-      setProfileImage(currentUser.profileImage || null);
-    }
+    const fetchUserData = async () => {
+      if (currentUser?.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            setUserData(data);
+            setName(data.fullName || '');
+            setEmail(data.email || '');
+            setProfileImage(data.profileImage || null);
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+        }
+      }
+    };
+
+    fetchUserData();
   }, [currentUser]);
 
   const pickImage = async () => {
@@ -158,8 +174,8 @@ export default function ProfileScreen() {
             </View>
           ) : (
             <View style={styles.profileInfo}>
-              <Text style={styles.name}>{name}</Text>
-              <Text style={styles.email}>{email}</Text>
+              <Text style={styles.name}>{userData?.fullName || name || 'User'}</Text>
+              <Text style={styles.email}>{userData?.email || email || 'No email available'}</Text>
             </View>
           )}
         </View>
