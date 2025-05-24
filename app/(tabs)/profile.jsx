@@ -5,8 +5,12 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseconfig';
+
+// Cloudinary config
+const CLOUD_NAME = 'dpylptqd6';
+const UPLOAD_PRESET = 'unsigned_events';
 
 const menuItems = [
   { id: '1', title: 'My Events', icon: 'calendar' },
@@ -40,6 +44,7 @@ export default function ProfileScreen() {
       image: require('../../assets/conference.jpg'),
     },
   ]);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Fetch user data from Firestore
   useEffect(() => {
@@ -63,9 +68,62 @@ export default function ProfileScreen() {
     fetchUserData();
   }, [currentUser]);
 
+  // Upload image to Cloudinary
+  const uploadImageToCloudinary = async (uri) => {
+    if (!uri) throw new Error('No image selected');
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        type: 'image/jpeg',
+        name: `profile_${Date.now()}.jpg`,
+      });
+      formData.append('upload_preset', UPLOAD_PRESET);
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+        { method: 'POST', body: formData }
+      );
+      const data = await response.json();
+      setIsUploading(false);
+      return data.secure_url;
+    } catch (error) {
+      console.error('Cloudinary upload error:', error);
+      setIsUploading(false);
+      throw new Error('Failed to upload image');
+    }
+  };
+
+  // Update user profile in Firestore
+  const updateUserProfile = async (imageUrl) => {
+    try {
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        profileImage: imageUrl,
+        updatedAt: new Date()
+      });
+      
+      // Update local state
+      setUserData(prev => ({
+        ...prev,
+        profileImage: imageUrl
+      }));
+      setProfileImage(imageUrl);
+      
+      // Update auth context
+      updateUser({
+        ...currentUser,
+        profileImage: imageUrl
+      });
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      throw error;
+    }
+  };
+
   const pickImage = async () => {
     try {
-      // Request permission to access the media library
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (status !== 'granted') {
@@ -73,7 +131,6 @@ export default function ProfileScreen() {
         return;
       }
       
-      // Launch the image picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -82,20 +139,26 @@ export default function ProfileScreen() {
       });
       
       if (!result.canceled) {
-        // Update the profile image state
-        setProfileImage(result.assets[0].uri);
-        
-        // Update the user profile in AuthContext
-        if (currentUser) {
-          updateUser({
-            ...currentUser,
-            profileImage: result.assets[0].uri
-          });
+        setIsUploading(true);
+        try {
+          // Upload image to Cloudinary
+          const imageUrl = await uploadImageToCloudinary(result.assets[0].uri);
+          
+          // Update user profile in Firestore
+          await updateUserProfile(imageUrl);
+          
+          Alert.alert('Success', 'Profile image updated successfully!');
+        } catch (error) {
+          console.error('Error updating profile:', error);
+          Alert.alert('Error', 'Failed to update profile image. Please try again.');
+        } finally {
+          setIsUploading(false);
         }
       }
     } catch (error) {
       console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
+      setIsUploading(false);
     }
   };
 
@@ -144,8 +207,16 @@ export default function ProfileScreen() {
                 style={styles.profileImage}
               />
             )}
-            <TouchableOpacity style={styles.editButton} onPress={pickImage}>
-              <Ionicons name="camera" size={20} color="white" />
+            <TouchableOpacity 
+              style={[styles.editButton, isUploading && styles.editButtonDisabled]} 
+              onPress={pickImage}
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                <Ionicons name="sync" size={20} color="white" />
+              ) : (
+                <Ionicons name="camera" size={20} color="white" />
+              )}
             </TouchableOpacity>
           </View>
           
@@ -349,5 +420,9 @@ const styles = StyleSheet.create({
   menuItemTitle: {
     fontSize: 16,
     marginLeft: 12,
+  },
+  editButtonDisabled: {
+    opacity: 0.7,
+    backgroundColor: '#666',
   },
 }); 
