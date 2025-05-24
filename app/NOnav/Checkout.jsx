@@ -44,11 +44,23 @@ export default function EventDetailsScreen() {
       try {
         let eventData;
         if (params.id) {
+          // First try to get from context
           eventData = getEventById(params.id);
+          
+          // If not in context or we want to ensure latest data, fetch from Firestore
+          if (!eventData || params.forceRefresh) {
+            const eventDoc = await getDoc(doc(db, 'events', params.id));
+            if (eventDoc.exists()) {
+              eventData = {
+                id: eventDoc.id,
+                ...eventDoc.data()
+              };
+            }
+          }
         }
         
         if (!eventData) {
-          // Fallback to params if event not found in context
+          // Fallback to params if event not found
           eventData = {
             id: params.id,
             title: params.title || 'Untitled Event',
@@ -224,7 +236,7 @@ export default function EventDetailsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.subTitle}>Description</Text>
-          <Text>{event?.description}</Text>
+          <Text style={styles.description}>{event.description}</Text>
         </View>
 
         <View style={styles.section}>

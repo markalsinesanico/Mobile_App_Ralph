@@ -90,18 +90,9 @@ export default function Categories() {
   const handleEventPress = (event) => {
     router.push({
       pathname: '/NOnav/Checkout',
-      params: {
+      params: { 
         id: event.id,
-        title: event.title,
-        location: event.location,
-        venue: event.venue,
-        image: event.imageUrl,
-        description: event.description,
-        categories: event.categories,
-        hotelId: event.hotelId,
-        hotelName: event.hotelName,
-        hotelPhone: event.hotelPhone,
-        hotelEmail: event.hotelEmail
+        forceRefresh: true 
       }
     });
   };
@@ -142,7 +133,7 @@ export default function Categories() {
                 <FontAwesome name="map-marker" size={14} color="#888" />
                 <Text style={styles.locationText}>{event.location}</Text>
               </View>
-              <Text style={styles.description}>{event.description}</Text>
+         
               <View style={styles.footerRow}>
                 <Text style={styles.hotelName}>By: {event.hotelName}</Text>
                 <Text style={styles.categories}>{event.categories || 'Event'}</Text>

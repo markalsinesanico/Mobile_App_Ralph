@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -10,11 +10,44 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebaseconfig';
 
 export default function Profile() {
   const router = useRouter();
   const { currentUser } = useAuth();
-  
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (currentUser?.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          if (userDoc.exists()) {
+            setUserData(userDoc.data());
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        setLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, [currentUser]);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Text>Loading...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -28,7 +61,7 @@ export default function Profile() {
         <View style={styles.profileHeader}>
           <View style={styles.profileImageContainer}>
             <Image
-              source={{ uri: 'https://ui-avatars.com/api/?name=' + (currentUser?.fullName || 'User') + '&background=random' }}
+              source={{ uri: 'https://ui-avatars.com/api/?name=' + (userData?.fullName || currentUser?.fullName || 'User') + '&background=random' }}
               style={styles.profileImage}
             />
             <TouchableOpacity style={styles.editImageButton}>
@@ -36,9 +69,9 @@ export default function Profile() {
             </TouchableOpacity>
           </View>
           
-          <Text style={styles.profileName}>{currentUser?.fullName || 'John Doe'}</Text>
-          <Text style={styles.profileEmail}>{currentUser?.email || 'john.doe@example.com'}</Text>
-          <Text style={styles.profilePhone}>{currentUser?.phone || '+1 234 567 8900'}</Text>
+          <Text style={styles.profileName}>{userData?.fullName || currentUser?.fullName || 'User'}</Text>
+          <Text style={styles.profileEmail}>{userData?.email || currentUser?.email || 'No email available'}</Text>
+          <Text style={styles.profilePhone}>{userData?.phoneNumber || currentUser?.phoneNumber || 'No phone available'}</Text>
           
           <TouchableOpacity 
             style={styles.editProfileButton}
@@ -71,11 +104,13 @@ export default function Profile() {
           <View style={styles.infoContainer}>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Member Since:</Text>
-              <Text style={styles.infoValue}>January 2023</Text>
+              <Text style={styles.infoValue}>
+                {userData?.createdAt ? new Date(userData.createdAt.toDate()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'N/A'}
+              </Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Account Type:</Text>
-              <Text style={styles.infoValue}>Premium</Text>
+              <Text style={styles.infoValue}>{userData?.role || 'User'}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Language:</Text>
